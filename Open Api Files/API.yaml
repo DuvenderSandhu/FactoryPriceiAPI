@@ -1,0 +1,168 @@
+openapi: 3.0.0
+info:
+  title: API Settings Management
+  description: API to manage shop settings, register API credentials, and delete API data.
+  version: 1.0.0
+servers:
+  - url: https://your-api-url.com/api
+    description: Production server
+
+paths:
+  /api/saveSettings:
+    post:
+      summary: Save or update shop settings
+      description: This endpoint allows saving or updating the shop settings, including the shop name, username, password, and product/order synchronization settings.
+      operationId: saveSettings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                shopName:
+                  type: string
+                  description: The name of the shop
+                username:
+                  type: string
+                  description: The username for the shop's system
+                password:
+                  type: string
+                  description: The password for the shop's system
+                syncProducts:
+                  type: boolean
+                  description: Whether products should be synchronized
+                syncOrders:
+                  type: boolean
+                  description: Whether orders should be synchronized
+              required:
+                - shopName
+                - username
+                - password
+                - syncProducts
+                - syncOrders
+      responses:
+        '200':
+          description: Settings saved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    description: The shop details (e.g., shop name, sync settings)
+        '400':
+          description: Missing required fields
+        '500':
+          description: Internal server error
+
+  /register:
+    post:
+      summary: Register API credentials for a shop
+      description: This endpoint registers API credentials (apiKey, apiSecret, apiUrl) for a shop.
+      operationId: registerAPI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                apiKey:
+                  type: string
+                  description: The API key for the shop
+                apiSecret:
+                  type: string
+                  description: The API secret for the shop
+                apiUrl:
+                  type: string
+                  description: The base URL of the API
+              required:
+                - apiKey
+                - apiSecret
+                - apiUrl
+      responses:
+        '201':
+          description: API credentials registered successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  result:
+                    type: object
+                    description: The result of saving API credentials
+        '400':
+          description: Missing required fields
+        '404':
+          description: Shop not found in the database
+        '500':
+          description: Internal server error
+
+  /api/deleteAPI:
+    delete:
+      summary: Delete API credentials
+      description: This endpoint deletes API credentials for the shop.
+      operationId: deleteAPI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                apiId:
+                  type: string
+                  description: The unique ID of the API to be deleted
+              required:
+                - apiId
+      responses:
+        '200':
+          description: API credentials deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    description: The result of the deletion operation
+        '400':
+          description: API ID is required
+        '404':
+          description: Shop not found in the database
+        '500':
+          description: Internal server error
+
+components:
+  schemas:
+    ShopSettings:
+      type: object
+      properties:
+        shopName:
+          type: string
+        username:
+          type: string
+        password:
+          type: string
+        syncProducts:
+          type: boolean
+        syncOrders:
+          type: boolean
+
+    APIRegistration:
+      type: object
+      properties:
+        apiKey:
+          type: string
+        apiSecret:
+          type: string
+        apiUrl:
+          type: string

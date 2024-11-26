@@ -1,0 +1,192 @@
+openapi: 3.0.3
+info:
+  title: Shopify Inventory API
+  description: API for managing inventory items and locations with Shopify
+  version: 1.0.0
+paths:
+  /api/getShopAPIData:
+    get:
+      summary: Get Shop API Data
+      description: Fetches API details for the shop stored in the session. Requires the shop name to be available in the session.
+      operationId: getShopAPIData
+      tags:
+        - Shop
+      responses:
+        200:
+          description: Successfully fetched API details for the shop.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    description: Shop API data
+        400:
+          description: Bad Request, shop name missing in session.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'Shop name is required in session'
+        404:
+          description: Not Found, shop ID or API data not found for the given shop.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'Shop ID not found for the given shop name'
+        500:
+          description: Internal Server Error due to unexpected error.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'An unexpected error occurred'
+                  error:
+                    type: string
+                    example: 'Error message details'
+  /api/getInventoryItemIdByEAN:
+    get:
+      summary: Get Inventory Item ID by EAN
+      description: Fetches the inventory item ID from Shopify for a given EAN (SKU). This includes pagination if there are many products.
+      operationId: getInventoryItemIdByEAN
+      parameters:
+        - in: query
+          name: shopName
+          required: true
+          description: The Shopify store name.
+          schema:
+            type: string
+        - in: query
+          name: accessToken
+          required: true
+          description: The access token for authenticating the request.
+          schema:
+            type: string
+        - in: query
+          name: ean
+          required: true
+          description: The EAN (SKU) for which to find the inventory item ID.
+          schema:
+            type: string
+      responses:
+        200:
+          description: Successfully fetched the inventory item ID.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inventoryItemId:
+                    type: string
+                    description: The inventory item ID found for the provided EAN.
+        404:
+          description: EAN not found in any of the products.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'Inventory item for EAN {ean} not found.'
+        500:
+          description: Internal Server Error, failure in fetching inventory item.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'Failed to retrieve inventory item by EAN'
+                  error:
+                    type: string
+                    example: 'Error details'
+  /api/getLocationIds:
+    get:
+      summary: Get Locations by Shop
+      description: Fetches the list of locations for a given Shopify store.
+      operationId: getLocationIds
+      parameters:
+        - in: query
+          name: shopName
+          required: true
+          description: The Shopify store name.
+          schema:
+            type: string
+        - in: query
+          name: accessToken
+          required: true
+          description: The access token for authenticating the request.
+          schema:
+            type: string
+      responses:
+        200:
+          description: Successfully fetched the list of locations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  locations:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                          description: The location ID
+                        name:
+                          type: string
+                          description: The name of the location
+        404:
+          description: No locations found for the shop.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'No locations found for this shop.'
+        500:
+          description: Internal Server Error due to failure in fetching locations.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'Error fetching locations'
+                  error:
+                    type: string
+                    example: 'Error details'
+
+components:
+  responses:
+    RateLimitError:
+      description: Rate limit exceeded, retrying after a delay.
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              message:
+                type: string
+                example: 'Rate limit exceeded. Retrying after {retryAfter} seconds.'
+              retryAfter:
+                type: integer
+                description: The retry delay in seconds.
+

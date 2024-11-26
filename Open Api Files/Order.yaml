@@ -1,0 +1,199 @@
+openapi: 3.0.3
+info:
+  title: Shopify Order API
+  description: API for creating, fetching, and deleting orders via an external API.
+  version: 1.0.0
+paths:
+  /createOrder:
+    post:
+      summary: Create an order
+      description: Creates an order by sending the order details in XML format to an external API.
+      operationId: createOrder
+      requestBody:
+        description: Order details to be created.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+                  description: Order ID
+                created_at:
+                  type: string
+                  format: date-time
+                  description: Order creation timestamp
+                current_total_price:
+                  type: string
+                  description: Total price of the order
+                customer:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                      description: Customer ID
+                    email:
+                      type: string
+                      description: Customer email
+                shipping_address:
+                  type: object
+                  properties:
+                    first_name:
+                      type: string
+                    last_name:
+                      type: string
+                    country:
+                      type: string
+                    city:
+                      type: string
+                    zip:
+                      type: string
+                    address1:
+                      type: string
+                    address2:
+                      type: string
+                    phone:
+                      type: string
+                payment_gateway_names:
+                  type: array
+                  items:
+                    type: string
+                line_items:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      sku:
+                        type: string
+                      quantity:
+                        type: integer
+      responses:
+        200:
+          description: Successfully created the order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: 'Order Created'
+                  data:
+                    type: object
+                    description: Order creation data
+        400:
+          description: Bad Request, missing required fields or invalid input.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'Missing required fields (username or salt)'
+        500:
+          description: Internal Server Error when forwarding the request to the external API or creating the order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'Failed to forward the request to the external API'
+  
+  /getOrder:
+    get:
+      summary: Fetch an order
+      description: Retrieves order details using an external API with the provided order number.
+      operationId: getOrder
+      parameters:
+        - in: query
+          name: orderNumber
+          required: true
+          description: The order number to retrieve
+          schema:
+            type: string
+      responses:
+        200:
+          description: Successfully fetched the order details.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  order_number:
+                    type: string
+                    description: The order number retrieved
+                  status:
+                    type: string
+                    description: The status of the order
+        500:
+          description: Internal Server Error when fetching the order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'Internal server error'
+  
+  /deleteOrder:
+    post:
+      summary: Delete an order
+      description: Deletes an order using the external API by passing the order number.
+      operationId: deleteOrder
+      requestBody:
+        description: The order number to delete.
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                orderNumber:
+                  type: string
+                  description: The order number to delete.
+      responses:
+        200:
+          description: Successfully deleted the order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: 'Order deleted successfully'
+        400:
+          description: Bad Request, missing order number or invalid input.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: 'Missing order number'
+        500:
+          description: Internal Server Error when deleting the order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: false
+                  error:
+                    type: string
+                    example: 'Internal server error while deleting order'
+                  details:
+                    type: string
+                    example: 'Error details from the external API'

@@ -1,0 +1,120 @@
+openapi: 3.0.3
+info:
+  title: Shopify Product API
+  description: API for creating products and syncing stock with Shopify
+  version: 1.0.0
+paths:
+  /api/createProduct:
+    post:
+      summary: Create a new product in the Shopify store
+      description: This endpoint allows users to create a new product by sending necessary details such as title, description, vendor, type, variants, images, etc.
+      operationId: createProduct
+      tags:
+        - Product
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                  description: Title of the product
+                bodyHtml:
+                  type: string
+                  description: Description of the product (HTML format)
+                vendor:
+                  type: string
+                  description: Vendor name for the product
+                productType:
+                  type: string
+                  description: The type or category of the product
+                tags:
+                  type: string
+                  description: A comma-separated list of tags for the product
+                variants:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      option1:
+                        type: string
+                        description: The option value for the product variant (e.g., size, color)
+                      price:
+                        type: number
+                        format: float
+                        description: Price of the variant
+                      sku:
+                        type: string
+                        description: SKU (Stock Keeping Unit) of the product variant
+                      requiresShipping:
+                        type: boolean
+                        description: Whether the variant requires shipping
+                      inventoryQuantity:
+                        type: integer
+                        description: Quantity of the product variant available in stock
+                      taxable:
+                        type: boolean
+                        description: Whether the variant is taxable
+                      barcode:
+                        type: string
+                        description: Barcode for the variant
+                images:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      originalSrc:
+                        type: string
+                        description: URL of the product image
+                options:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        description: Name of the option (e.g., "Color", "Size")
+                      values:
+                        type: array
+                        items:
+                          type: string
+                          description: Possible values for the option (e.g., "Red", "Blue")
+      responses:
+        201:
+          description: Product successfully created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Product created successfully.
+                  product:
+                    type: object
+                    description: The created product object returned by Shopify API
+        400:
+          description: Bad Request (e.g., missing required fields)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Title, body_html, vendor, product_type, and variants are required.
+        500:
+          description: Internal Server Error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Error creating product
+                  error:
+                    type: string
+                    example: Error message description
