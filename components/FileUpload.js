@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-import { Select, Button, Row, Col, Typography, Table, message, Spin } from 'antd';
+import React, { useState,useEffect } from 'react';
+import { Select, Button, Row, Col, Typography, Table, message, Spin ,notification} from 'antd';
 import { xml2js } from 'xml-js';
 import { saveAs } from 'file-saver';
 import Papa from 'papaparse';
-
+import PriceAdjustment from './PriceAdjustment'
 const { Option } = Select;
 const { Title, Text } = Typography;
 
@@ -16,7 +16,43 @@ function TopBar() {
   const [disabledOptions, setDisabledOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [priceAdjustment, setPriceAdjustment] = useState(null);
+  
 
+
+  const fetchPriceAdjustment = async () => {
+    try {
+      // Use fetch to get data from the API
+      const response = await fetch(`/api/get-price-adjustment`);
+
+      if (!response.ok) {
+        throw new Error('Error fetching price adjustment data');
+      }
+
+      // Parse the response as JSON
+      const data = await response.json();
+
+      if (data.priceAdjustmentType && data.priceAdjustmentAmount !== undefined) {
+        setPriceAdjustment(data); // Set the state with fetched data
+
+        // Show notification with the fetched price adjustment settings
+        notification.success({
+          message: 'Price Adjustment Settings',
+          description: `Your setting has the type: ${data.priceAdjustmentType} and the amount: ${data.priceAdjustmentAmount}`,
+        });
+      } else {
+        notification.error({
+          message: 'No Data Found',
+          description: `No price adjustment settings found for shop "${shopName}".`,
+        });
+      }
+    } catch (error) {
+      notification.error({
+        message: 'Error Fetching Data',
+        description: error.message || 'An error occurred while fetching the data.',
+      });
+    }
+  };
   const handleFileUpload = (e, setFile) => {
     setFile(e.target.files[0]);
   };
@@ -24,10 +60,10 @@ function TopBar() {
   const parseXML = async (file) => {
     try {
       const text = await file.text();
-      console.log("Text",text)
+      //console.log("Text",text)
       const data = xml2js(text, { compact: true });
-      // console.log("data",data)
-      return data.stocks?.stock || data.root.products.product;
+      // //console.log("data",data)
+      return data.stocks?.stock || data.offer.products.product;
     } catch (error) {
       throw new Error('Error parsing XML file');
     }
@@ -106,7 +142,7 @@ const importProductToShopify = async (product) => {
     // Check if the response is OK (status in the range of 200-299)
     if (response.ok) {
       const data = await response.json();
-      console.log('Product imported to Shopify:', data);
+      //console.log('Product imported to Shopify:', data);
       message.success(`Product "${data.product.title}" imported successfully!`);
     } else {
       // Handle non-2xx responses
@@ -116,7 +152,6 @@ const importProductToShopify = async (product) => {
     }
   } catch (error) {
     console.error('Error importing product to Shopify:', error);
-    message.error(`Error occurred while importing product "${product.title}".`);
   }
 };
 
@@ -144,7 +179,7 @@ function convertToShopifyProduct(data) {
       return {
         option1: variant.size || '', // Size option
         sku: variant.code || '', // SKU code
-        price: price, // Price, formatted to 2 decimal places
+        price:priceAdjustment.priceAdjustmentType === 'fixed'? price + priceAdjustment.priceAdjustmentAmount : (price + (price * priceAdjustment.priceAdjustmentAmount) / 100), // Price, formatted to 2 decimal places
         inventoryQuantity: inventoryQuantity, // Inventory quantity
         requiresShipping: true, // Set to true if the product requires shipping
         barcode: variant.ean || '', // Use EAN as barcode
@@ -155,13 +190,13 @@ function convertToShopifyProduct(data) {
 
   // Extract main fields
   const product = {
-    title: data.display_name._cdata || '',
-    bodyHtml: data.description_long._cdata || '',
+    title: data.display_name._cdata ||data.display_name._text ||data.display_name || '',
+    bodyHtml: data.description_long._cdata || data.description_long._text || data.description_long || '',
     vendor: data.producer._cdata || '',
     productType: data.category._text || '',
-    tags: `${data.gender._text}, ${data.category_name._text}, ${data.color._text}`, // Concatenate tags
+    tags: `${data.gender._text || data.gender._cdata || data.gender ||""}, ${data.category._text || data.category._cdata || data.category || "" }, ${data.color._text || data.color._cdata || data.color ||""}`, // Concatenate tags
     variants: extractVariants(data.variants || []), // Process variants
-    images: (data.pictures?.picture || []).map(pic => ({ originalSrc: pic._text })),
+    images: (data.pictures?.picture || []).map(pic => ({ originalSrc: pic._text || pic._cdata|| pic || "" })),
     options: [{
       name: "Size",
       values: (data.variants || []).map(v => v.size || '').filter((v, i, a) => a.indexOf(v) === i) // Unique sizes
@@ -213,17 +248,16 @@ const handleProductImport = async () => {
 
   try {
     // Use forEach to iterate over mergedData and call the importProductToShopify function for each product
-    mergedData.forEach(async (product) => {
-      await importProductToShopify(product);
+    await mergedData.forEach(async (product,i) => {
+          await importProductToShopify(product);
     });
 
     setLoading(false);
     message.success('All products are being imported!');
   } catch (err) {
-    console.log(err);
+    //console.log(err);
     setLoading(false);
-    setError("Error occurred during product import.");
-    message.error('Error occurred while importing products.');
+
   }
 };
 
@@ -294,12 +328,12 @@ const handleProductImport = async () => {
       let mergedVariants = [];
   
       // Iterate over variants of the product
-      // console.log(product.variants.variant)
+      // //console.log(product.variants.variant)
       // Problematic 
       try{
         product.variants?.variant?.forEach((variant) => {
           const eanCode = variant._attributes?variant._attributes.code:variant.map((abc,i)=>abc)
-          console.log(eanCode)
+          //console.log(eanCode)
   
         
           if (!eanCode) {
@@ -308,7 +342,7 @@ const handleProductImport = async () => {
           }
         // Try to find the matching item in obj2 using the normalized EAN code
         const matchingItem = obj2Map.get(eanCode);
-        // console.log("matchingItem",matchingItem)
+        // //console.log("matchingItem",matchingItem)
         if (matchingItem) {
           // If match found, merge attributes from the matching item
           Object.keys(matchingItem).forEach(key => {
@@ -329,11 +363,11 @@ const handleProductImport = async () => {
   
         // Push the merged variant (whether matched or not) to the array
         mergedVariants.push({ ...variant._attributes });
-        // console.log(mergedVariants)
+        // //console.log(mergedVariants)
         });
       }
       catch(e){
-        console.log(e)
+        //console.log(e)
       }
       // Merge the product with the merged variants
       const mergedProduct = {
@@ -350,7 +384,7 @@ const handleProductImport = async () => {
   
     // Log unmatched EANs for debugging purposes
     if (unmatchedEans.length > 0) {
-      console.log("Unmatched EANs:", unmatchedEans);
+      //console.log("Unmatched EANs:", unmatchedEans);
     }
   
     return { mergeData, unmatchedEans };
@@ -382,11 +416,10 @@ const handleMergeAndMap = async () => {
   try {
     const data1 = await parseXML(file1);
     const data2 = await parseXML(file2);
-    
+
 
     const {mergeData,unmatchedEans} = await mergeXMLData(data1, data2);
     const merged = mergeData
-    console.log("Merged here",merged)
     setMergedData(merged);
 
     // Flatten and combine all keys, including keys from variations with 'variation_' prefix
@@ -422,7 +455,7 @@ const handleMergeAndMap = async () => {
 
     // Remove the original 'variant' key if present and return final fields
     const finalFields = combinedFields.filter(field => !field.includes('variant'));
-    console.log(finalFields);
+    //console.log(finalFields);
 
     // Set columns based on final fields and variations
     setXmlColumns(finalFields);
@@ -459,16 +492,16 @@ const handleMergeAndMap = async () => {
   
     try {
       const csvData = mergedData.map((record) => {
-        console.log(mergedData)
+        //console.log(mergedData)
         const row = {};
   
         // Map Shopify fields to XML fields
         Object.keys(columnMappings).forEach((shopifyField) => {
           const xmlField = columnMappings[shopifyField];
-          // console.log("field",shopifyField," Xml Field ",xmlField,"and Data is ",getFieldText(record[xmlField]))
+          // //console.log("field",shopifyField," Xml Field ",xmlField,"and Data is ",getFieldText(record[xmlField]))
           if (xmlField) {
             if (xmlField.startsWith('variation_')) {
-              console.log("Hi")
+              //console.log("Hi")
               // If the field is a variation, loop through the variants and find the correct value
               // We're assuming record.variants is an array of objects and each variant has keys like 'size', 'qty', etc.
               record.variants.forEach((variant, index) => {
@@ -479,13 +512,13 @@ const handleMergeAndMap = async () => {
                 if (variant.hasOwnProperty(variantKey)) {
                   // If the key exists, get its value and assign it to the Shopify field
                   row[shopifyField] = getFieldText(variant[variantKey]);
-                  console.log(`For ${shopifyField}, value:`, row[shopifyField]);
+                  //console.log(`For ${shopifyField}, value:`, row[shopifyField]);
                 }
               });
             } else {
               // If it's not a variation, just get the regular XML field from the record
               row[shopifyField] = getFieldText(record[xmlField]);
-              // console.log(`For ${shopifyField}, value:`, row[shopifyField]);
+              // //console.log(`For ${shopifyField}, value:`, row[shopifyField]);
             }
           } else {
             // If no xmlField is available, set the value to empty
@@ -654,7 +687,9 @@ const handleMergeAndMap = async () => {
     shopifyField: field,
     xmlField: columnMappings[field],
   }));
-
+    useEffect(()=>{
+        fetchPriceAdjustment()
+    },[])
   return (
     <div className="max-w-4xl mx-auto p-8 bg-white rounded-lg shadow-xl">
       <Title level={2} className="text-center text-indigo-600 mb-8">Shopify Product Uploader</Title>
@@ -719,7 +754,10 @@ const handleMergeAndMap = async () => {
       >
         {loading ? <Spin size="small" /> : "Download CSV"}
       </Button>
-
+    
+      {mergedData.length > 0 && (
+                    <PriceAdjustment/>
+      )}
       {mergedData.length > 0 && (
         <Button
           type="primary"

@@ -1,0 +1,7 @@
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION BEGIN
+PassengerAppRoot "/home/botdbcmu/factoryprice.botdigit.net"
+PassengerBaseURI "/"
+PassengerNodejs "/home/botdbcmu/nodevenv/factoryprice.botdigit.net/20/bin/node"
+PassengerAppType node
+PassengerStartupFile server.js
+# DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION END

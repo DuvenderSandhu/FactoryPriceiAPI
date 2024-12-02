@@ -35,8 +35,11 @@ const Endpoints = () => {
   const handleApiTest = async (apiUrl) => {
     setLoading(true);
     try {
-      const response = await fetch(apiUrl);
-      const result = await response.json();
+      const response = await fetch(apiUrl,{
+          method:"GET",
+           mode: 'no-cors'
+      });
+      const result = await response.text();
 
       if (response.ok) {
         setResponseData({
@@ -75,16 +78,22 @@ const Endpoints = () => {
   const handleSyncNow = () => {
     setLoading(true);
     // Simulate sync process with API or backend call
-    fetch('/api/syncStock').then(res=>res.text()).then(data=>console.log(data))
-    setTimeout(() => {
-      setLastSync(new Date().toLocaleString()); // Update last sync time
-      setLoading(false);
-      notification.success({
-        message: 'Sync Completed',
-        description: 'The sync has been completed successfully.',
-      });
-    }, 2000); // Simulate a 2-second sync delay
-  };
+    fetch('/api/syncStock').then(res=>res.json()).then(function (data){
+              setLoading(false);
+              if(data.results.length!=0){
+        notification.success({
+            message: 'Sync Completed',
+            description: 'The sync has been Completed successfully.',
+      });}
+      else{
+          notification.success({
+              message:"No Update Found",
+              description:data.message
+          })
+      }
+              
+    })}
+
 
   // Handle API deletion
   const handleDelete = (apiId) => {

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Tabs } from 'antd';
-import ApiSettingsForm from '../components/ApiSettingsForm';
+
+import ApiSettingsForm from '../components/APISettingsForm';
 import EndpointsTab from '../components/Endpoints';
 import FileUploadTab from '../components/FileUpload';
 
@@ -13,7 +14,7 @@ const PluginIntegrationSettings = () => {
     <div className="max-w-4xl mx-auto p-6 bg-white rounded-xl shadow-lg">
       <Tabs activeKey={activeTab} onChange={setActiveTab} centered>
         <TabPane tab="API Settings" key="api-settings">
-          <ApiSettingsForm  />
+        <ApiSettingsForm/>
         </TabPane>
         <TabPane tab="File Upload" key="file-upload">
           <FileUploadTab />

@@ -1,7 +1,7 @@
 const sqlite3 = require('sqlite3').verbose();
 
 // Open the SQLite database (or create it if it doesn't exist)
-const db = new sqlite3.Database('./new2.db', (err) => {
+const db = new sqlite3.Database('./new.db', (err) => {
   if (err) {
     console.error('Error opening SQLite database:', err);
   } else {
@@ -15,6 +15,8 @@ db.run(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     shopName TEXT NOT NULL,
     accessToken TEXT NOT NULL,
+    priceAdjustmentType TEXT NOT NULL DEFAULT 'fixed', -- Type of price adjustment: 'fixed' or 'percentage'
+    priceAdjustmentAmount REAL NOT NULL DEFAULT 0,    -- Amount of price adjustment (could be a fixed value or a percentage)
     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(shopName) -- ensures the shopName is unique
   )
@@ -25,6 +27,7 @@ db.run(`
     console.log('shop table created or already exists.');
   }
 });
+
 
 db.run(`
   CREATE TABLE IF NOT EXISTS orders (
@@ -220,11 +223,46 @@ const upsertShopDetails = (shopID, apikey, apiSecret, apiurl, syncProducts, sync
 };
 
 
+const updatePriceAdjustment = (shopName, newType, newAmount, db) => {
+  // Validate input values
+  if (newType !== 'fixed' && newType !== 'percentage') {
+    console.error('Invalid price adjustment type. It should be either "fixed" or "percentage".');
+    return;
+  }
 
+  if (isNaN(newAmount) || newAmount < 0) {
+    console.error('Invalid price adjustment amount. It should be a non-negative number.');
+    return;
+  }
 
+  // Update the price adjustment for the specified shop
+  const query = `
+    UPDATE shop
+    SET priceAdjustmentType = ?, priceAdjustmentAmount = ?
+    WHERE shopName = ?
+  `;
+  
+  db.run(query, [newType, newAmount, shopName], function(err) {
+    if (err) {
+      console.error('Error updating price adjustment:', err.message);
+    } else if (this.changes === 0) {
+      console.log('No shop found with the provided name.');
+    } else {
+      console.log(`Price adjustment updated for shop: ${shopName}`);
+    }
+  });
+};
 
-
-
+const getPriceAdjustmentByShopName = async (shopName) => {
+  try {
+    // Normalize shopName by trimming whitespace and converting to lower case
+    return {data:"shopName"}
+    
+  } catch (error) {
+    console.error('Error retrieving price adjustment:', error);  // Log the error
+    throw new Error('Error fetching price adjustment data.');
+  }
+};
 
 // Function to find a shop by its name
 // Function to get shopID by shopName
@@ -427,5 +465,7 @@ module.exports = {
   getShopAPIDataByShopID,
   SaveUserData,
   updateOrderCancellationStatus,
-  addOrder
+  addOrder,
+  updatePriceAdjustment,
+  getPriceAdjustmentByShopName
 };

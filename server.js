@@ -481,7 +481,8 @@ router.post('/api/createProduct', async (ctx) => {
           tags: productData.tags ? productData.tags.split(',') : [],
           variants: productData.variants.map(variant => ({
               option1: variant.option1, // Required
-              price: (variant.price && !isNaN(parseFloat(variant.price))) ? parseFloat(variant.price) :"",
+              price: (variant.price && !isNaN(parseFloat(variant.price))) ? parseFloat(variant.price) : 0,
+
               sku: variant.sku || null, // Optional SKU
               requires_shipping: variant.requiresShipping || false, // Optional shipping requirement
               inventory_management: "shopify",
@@ -854,13 +855,55 @@ router.get('/api/getShopAPIData', async (ctx) => {
 // Function to get API details by shopID
 
 
+router.post('/api/update-price-adjustment', async (ctx) => {
+  const {  priceAdjustmentType, priceAdjustmentAmount } = ctx.request.body;
 
-  
-  
-  
-  
-  
+  // Validate input
+  if (!priceAdjustmentType || !priceAdjustmentAmount) {
+    ctx.status = 400;
+    ctx.body = { error: 'shopName, priceAdjustmentType, and priceAdjustmentAmount are required' };
+    return;
+  }
 
+  try {
+    const result = await updatePriceAdjustment(ctx.session.shop, priceAdjustmentType, priceAdjustmentAmount);
+    ctx.status = 200;
+    ctx.body = { message: result };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { error: err };
+  }
+});
+  
+  
+router.get('/api/get-price-adjustment', async (ctx) => {
+  const { shop } = ctx.session;  // Get shop name from session
+
+  // Check if the shop name is provided in the session
+  if (!shop) {
+    ctx.status = 400;
+    ctx.body = { message: 'Shop name is required.' };
+    return;
+  }
+
+  try {
+    // Fetch price adjustment data based on shop name
+    const data = await db.getPriceAdjustmentByShopName(shop);
+
+    if (data) {
+      ctx.status = 200;
+      ctx.body = data;  // Return price adjustment data
+    } else {
+      ctx.status = 404;
+      ctx.body = { message: `Price adjustment settings for shop "${shop}" not found.` };
+    }
+  } catch (error) {
+    // Log the error and respond with a 500 Internal Server Error
+    console.error('Error in /api/get-price-adjustment route:', error);
+    ctx.status = 500;
+    ctx.body = { message: 'Internal server error, please try again later.' };
+  }
+});
 
   server.use(graphQLProxy({ version: ApiVersion.October19 }));
 
