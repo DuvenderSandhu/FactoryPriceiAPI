@@ -25,14 +25,16 @@ const client = new ApolloClient({
 const MyApp = ({ Component, pageProps }) => {
   const router = useRouter();
 
-
-
   const config = {
     apiKey: API_KEY, // Ensure API_KEY is defined somewhere
     shopOrigin: Cookies.get('shopOrigin'),
     forceRedirect: true,
   };
-
+useEffect(()=>{
+    let data= Cookies.get('shopOrigin')
+    console.log(data==undefined)
+    // data==undefined?router.push('/auth'):""
+},[])
   return (
     <React.Fragment>
       <Head>

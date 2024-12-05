@@ -1,12 +1,53 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, notification, Select } from 'antd';
 
 const { Option } = Select;
 
 const ApiSettingsForm = ({ onApiSubmit, loading }) => {
-    
+  let [priceAdjustment, setPriceAdjustment] = useState({priceAdjustmentType:"",priceAdjustmentAmount:""});
+  let [turnOff, setTurnOff] = useState(0);
+  
   const [formApi] = Form.useForm(); // Form for API settings
   const [formPriceAdjustment] = Form.useForm(); // Form for Price Adjustment settings
+
+  useEffect(() => {
+    const fetchPriceAdjustment = async () => {
+      try {
+        // Use fetch to get data from the API
+        const response = await fetch(`/api/get-price-adjustment`);
+
+        if (!response.ok) {
+          throw new Error('Error fetching price adjustment data');
+        }
+
+        // Parse the response as JSON
+        const sample = await response.json();
+        const data = sample.data;
+
+        if (data.priceAdjustmentType && data.priceAdjustmentAmount !== undefined) {
+          setPriceAdjustment(data); // Set the state with fetched data
+
+          // Show notification with the fetched price adjustment settings
+          notification.success({
+            message: 'Price Adjustment Settings',
+            description: `Your setting has the type: ${data.priceAdjustmentType} and the amount: ${data.priceAdjustmentAmount}`,
+          });
+        } else {
+          notification.error({
+            message: 'No Data Found',
+            description: `No price adjustment settings found for the shop.`,
+          });
+        }
+      } catch (error) {
+        notification.error({
+          message: 'Error Fetching Data',
+          description: error.message || 'An error occurred while fetching the data.',
+        });
+      }
+      setTurnOff(1);
+    };
+    fetchPriceAdjustment();
+  }, [turnOff]);
 
   // Function to handle API settings submission
   const handleApiSubmit = async (values) => {
@@ -63,6 +104,9 @@ const ApiSettingsForm = ({ onApiSubmit, loading }) => {
     }
 
     try {
+      priceAdjustment.priceAdjustmentType= priceAdjustmentType
+      priceAdjustment.priceAdjustmentAmount= priceAdjustmentAmount
+
       const response = await fetch('/api/update-price-adjustment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -105,24 +149,21 @@ const ApiSettingsForm = ({ onApiSubmit, loading }) => {
         <Form.Item
           label="API Key"
           name="apiKey"
-          rules={[{ required: true, message: 'API Key is required' }]}
-        >
+          rules={[{ required: true, message: 'API Key is required' }]}>
           <Input placeholder="Enter API Key" />
         </Form.Item>
 
         <Form.Item
           label="API Secret"
           name="apiSecret"
-          rules={[{ required: true, message: 'API Secret is required' }]}
-        >
+          rules={[{ required: true, message: 'API Secret is required' }]}>
           <Input placeholder="Enter API Secret" />
         </Form.Item>
 
         <Form.Item
           label="API URL"
           name="apiUrl"
-          rules={[{ required: true, message: 'API URL is required' }]}
-        >
+          rules={[{ required: true, message: 'API URL is required' }]}>
           <Input placeholder="Enter API URL" />
         </Form.Item>
 
@@ -143,13 +184,20 @@ const ApiSettingsForm = ({ onApiSubmit, loading }) => {
         onFinish={handlePriceAdjustmentSubmit}
         layout="vertical"
         requiredMark={false}
+        initialValues={{
+          priceAdjustmentType: priceAdjustment.priceAdjustmentType,  // Initialize type from state
+          priceAdjustmentAmount: priceAdjustment.priceAdjustmentAmount,  // Initialize amount from state
+        }}
       >
         <Form.Item
           label="Price Adjustment Type"
           name="priceAdjustmentType"
           rules={[{ required: true, message: 'Please select a price adjustment type' }]}
         >
-          <Select placeholder="Select price adjustment type">
+          <Select
+            
+            placeholder="Select price adjustment type"
+          >
             <Option value="fixed">Fixed</Option>
             <Option value="percentage">Percentage</Option>
           </Select>
@@ -158,12 +206,14 @@ const ApiSettingsForm = ({ onApiSubmit, loading }) => {
         <Form.Item
           label="Price Adjustment Amount"
           name="priceAdjustmentAmount"
-          rules={[
-            { required: true, message: 'Please enter the price adjustment amount' },
-            
-          ]}
+          rules={[{ required: true, message: 'Please enter the price adjustment amount' }]}
         >
-          <Input type="number" min={0} placeholder="Enter Amount" />
+          <Input
+            type="number"
+            min={0}
+            placeholder="Enter Amount"
+            
+          />
         </Form.Item>
 
         <Button
@@ -175,7 +225,23 @@ const ApiSettingsForm = ({ onApiSubmit, loading }) => {
           Apply Price Adjustment
         </Button>
       </Form>
-    </div>
+      <div>
+        <strong>Type: </strong>
+        <span>
+          {priceAdjustment.priceAdjustmentType !== undefined && priceAdjustment.priceAdjustmentType !== null
+            ? `${priceAdjustment.priceAdjustmentType}`
+            : 'Type not defined '}
+        </span>
+      </div>
+      <div>
+        <strong>Amount: </strong>
+        <span>
+          {priceAdjustment.priceAdjustmentAmount !== undefined && priceAdjustment.priceAdjustmentAmount !== null
+            ? `$${priceAdjustment.priceAdjustmentAmount}`
+            : 'N/A'}
+        </span>
+      </div>
+      </div>
   );
 };
 

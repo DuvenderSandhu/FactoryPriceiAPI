@@ -3,6 +3,7 @@ import { Form, Input, Button, notification } from 'antd';
 
 const ApiSettingsForm = ({ onApiSubmit }) => {
   let [apiData,setApiData]= useState({})
+  let [priceAdjustment,setPriceAdjustment]= useState({})
   useEffect(() => {
     const fetchApiData = async () => {
       setLoading(true);
@@ -20,7 +21,41 @@ const ApiSettingsForm = ({ onApiSubmit }) => {
         setLoading(false);
       }
     };
-
+    const fetchPriceAdjustment = async () => {
+      try {
+        // Use fetch to get data from the API
+        const response = await fetch(`/api/get-price-adjustment`);
+  
+        if (!response.ok) {
+          throw new Error('Error fetching price adjustment data');
+        }
+  
+        // Parse the response as JSON
+        const sample = await response.json();
+        const data= sample.data
+  
+        if (data.priceAdjustmentType && data.priceAdjustmentAmount !== undefined) {
+          setPriceAdjustment(data); // Set the state with fetched data
+  
+          // Show notification with the fetched price adjustment settings
+          notification.success({
+            message: 'Price Adjustment Settings',
+            description: `Your setting has the type: ${data.priceAdjustmentType} and the amount: ${data.priceAdjustmentAmount}`,
+          });
+        } else {
+          notification.error({
+            message: 'No Data Found',
+            description: `No price adjustment settings found for shop "${shopName}".`,
+          });
+        }
+      } catch (error) {
+        notification.error({
+          message: 'Error Fetching Data',
+          description: error.message || 'An error occurred while fetching the data.',
+        });
+      }
+    };
+    fetchPriceAdjustment()
     fetchApiData();
   }, []);
   const [loading, setLoading] = useState(false);

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Input, Select, Button, Row, Col } from 'antd';
 
-const PriceAdjustment = () => {
+const PriceAdjustmentComponent = () => {
   const [priceType, setPriceType] = useState('fixed'); // 'fixed' or 'percentage'
   const [priceValue, setPriceValue] = useState('');
   const [adjustedPrice, setAdjustedPrice] = useState(null);
@@ -72,4 +72,4 @@ const PriceAdjustment = () => {
   );
 };
 
-export default PriceAdjustment;
+export default PriceAdjustmentComponent;

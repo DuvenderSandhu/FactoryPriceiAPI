@@ -3,7 +3,8 @@ import { Select, Button, Row, Col, Typography, Table, message, Spin ,notificatio
 import { xml2js } from 'xml-js';
 import { saveAs } from 'file-saver';
 import Papa from 'papaparse';
-import PriceAdjustment from './PriceAdjustment'
+import PriceAdjustmentComponent from './PriceAdjustment'
+import ProgressComponent from './ProgressComponent'
 const { Option } = Select;
 const { Title, Text } = Typography;
 
@@ -16,8 +17,8 @@ function TopBar() {
   const [disabledOptions, setDisabledOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [priceAdjustment, setPriceAdjustment] = useState(null);
-  
+  const [priceAdjustment, setPriceAdjustment] = useState({});
+  const [receivedProducts,setReceivedProducts]=useState(0)
 
 
   const fetchPriceAdjustment = async () => {
@@ -32,9 +33,8 @@ function TopBar() {
       // Parse the response as JSON
       const data = await response.json();
 
-      if (data.priceAdjustmentType && data.priceAdjustmentAmount !== undefined) {
-        setPriceAdjustment(data); // Set the state with fetched data
-
+      if (data.data.priceAdjustmentType && data.data.priceAdjustmentAmount !== undefined) {
+        setPriceAdjustment(data.data); // Set the state with fetched data
         // Show notification with the fetched price adjustment settings
         notification.success({
           message: 'Price Adjustment Settings',
@@ -60,7 +60,7 @@ function TopBar() {
   const parseXML = async (file) => {
     try {
       const text = await file.text();
-      //console.log("Text",text)
+    //   console.log("Text",text)
       const data = xml2js(text, { compact: true });
       // //console.log("data",data)
       return data.stocks?.stock || data.offer.products.product;
@@ -107,7 +107,7 @@ const getFieldText = (field) => {
 
 const importProductToShopify = async (product) => {
   // Structure the product data to match Shopify's product creation API format
-  console.log('Original Product:', product);
+//   console.log('Original Product:', product);
   
   const productData = await convertToShopifyProduct(product);
   console.log('Formatted Product Data for Shopify:', productData);
@@ -128,6 +128,7 @@ const importProductToShopify = async (product) => {
                                    variant.option1 === 'M' ? 2 : 1; // Set based on size
     }
   });
+  console.log("productData.product",productData.product)
 
   try {
     // Send the product data to your Shopify backend
@@ -143,6 +144,8 @@ const importProductToShopify = async (product) => {
     if (response.ok) {
       const data = await response.json();
       //console.log('Product imported to Shopify:', data);
+      let count= receivedProducts+1
+      setReceivedProducts(count)
       message.success(`Product "${data.product.title}" imported successfully!`);
     } else {
       // Handle non-2xx responses
@@ -175,11 +178,10 @@ function convertToShopifyProduct(data) {
 
       // Extract inventoryQuantity from qty, ensuring it's a number (default to 0 if not valid)
       const inventoryQuantity = parseInt(variant.qty, 10) || 0;
-
       return {
         option1: variant.size || '', // Size option
         sku: variant.code || '', // SKU code
-        price:priceAdjustment.priceAdjustmentType === 'fixed'? price + priceAdjustment.priceAdjustmentAmount : (price + (price * priceAdjustment.priceAdjustmentAmount) / 100), // Price, formatted to 2 decimal places
+        price:priceAdjustment.priceAdjustmentType === 'fixed'? parseInt(price) + parseInt(priceAdjustment.priceAdjustmentAmount) : (parseInt(price) + (parseInt(price) * parseInt(priceAdjustment.priceAdjustmentAmount)) / 100), // Price, formatted to 2 decimal places
         inventoryQuantity: inventoryQuantity, // Inventory quantity
         requiresShipping: true, // Set to true if the product requires shipping
         barcode: variant.ean || '', // Use EAN as barcode
@@ -688,10 +690,11 @@ const handleMergeAndMap = async () => {
     xmlField: columnMappings[field],
   }));
     useEffect(()=>{
-        fetchPriceAdjustment()
+        fetchPriceAdjustment().then()
     },[])
   return (
     <div className="max-w-4xl mx-auto p-8 bg-white rounded-lg shadow-xl">
+    <ProgressComponent percent={receivedProducts}/>
       <Title level={2} className="text-center text-indigo-600 mb-8">Shopify Product Uploader</Title>
 
       <div className="mb-6 space-y-6">
@@ -756,7 +759,7 @@ const handleMergeAndMap = async () => {
       </Button>
     
       {mergedData.length > 0 && (
-                    <PriceAdjustment/>
+                    <ProgressComponent percent={receivedProducts}/>
       )}
       {mergedData.length > 0 && (
         <Button

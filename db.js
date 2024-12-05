@@ -223,7 +223,7 @@ const upsertShopDetails = (shopID, apikey, apiSecret, apiurl, syncProducts, sync
 };
 
 
-const updatePriceAdjustment = (shopName, newType, newAmount, db) => {
+const updatePriceAdjustment = (shopName, newType, newAmount) => {
   // Validate input values
   if (newType !== 'fixed' && newType !== 'percentage') {
     console.error('Invalid price adjustment type. It should be either "fixed" or "percentage".');
@@ -256,13 +256,34 @@ const updatePriceAdjustment = (shopName, newType, newAmount, db) => {
 const getPriceAdjustmentByShopName = async (shopName) => {
   try {
     // Normalize shopName by trimming whitespace and converting to lower case
-    return {data:"shopName"}
-    
+    const normalizedShopName = shopName.trim().toLowerCase();
+
+    return new Promise((resolve, reject) => {
+      // SQL query to retrieve Price and Type based on shopName
+      const query = `
+        SELECT priceAdjustmentType, priceAdjustmentAmount 
+        FROM shop
+        WHERE LOWER(ShopName) = ?
+      `;
+
+      // Execute the query using the provided db instance
+      db.get(query, [normalizedShopName], (err, row) => {
+        if (err) {
+          console.error('Error executing query:', err);
+          reject(new Error('Error fetching price adjustment data.'));
+        } else if (row) {
+          resolve({ data: row });
+        } else {
+          resolve({ data: null });  // No data found
+        }
+      });
+    });
   } catch (error) {
-    console.error('Error retrieving price adjustment:', error);  // Log the error
+    console.error('Error retrieving price adjustment:', error);
     throw new Error('Error fetching price adjustment data.');
   }
 };
+
 
 // Function to find a shop by its name
 // Function to get shopID by shopName

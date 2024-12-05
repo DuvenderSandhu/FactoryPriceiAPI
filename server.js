@@ -866,7 +866,7 @@ router.post('/api/update-price-adjustment', async (ctx) => {
   }
 
   try {
-    const result = await updatePriceAdjustment(ctx.session.shop, priceAdjustmentType, priceAdjustmentAmount);
+    const result = await db.updatePriceAdjustment(ctx.session.shop, priceAdjustmentType, priceAdjustmentAmount);
     ctx.status = 200;
     ctx.body = { message: result };
   } catch (err) {
