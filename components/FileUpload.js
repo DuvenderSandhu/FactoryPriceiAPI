@@ -1,10 +1,12 @@
 import React, { useState,useEffect } from 'react';
-import { Select, Button, Row, Col, Typography, Table, message, Spin ,notification} from 'antd';
+import { Select, Button, Row, Col, Typography, Table, message, Spin ,notification,Space ,Tooltip } from 'antd';
+import { UploadOutlined, AppstoreAddOutlined } from '@ant-design/icons';
 import { xml2js } from 'xml-js';
 import { saveAs } from 'file-saver';
 import Papa from 'papaparse';
 import PriceAdjustmentComponent from './PriceAdjustment'
 import ProgressComponent from './ProgressComponent'
+import axios from 'axios';
 const { Option } = Select;
 const { Title, Text } = Typography;
 
@@ -105,6 +107,38 @@ const getFieldText = (field) => {
   return field || '';
 };
 
+const uploadFile1 = async () => {
+  if (!file1) {
+    alert('Please select an XML file first.');
+    return;
+  }
+  setLoading(true)
+  const formData = new FormData();
+  formData.append('file', file1); // Add the file to the FormData object
+
+  try {
+    const response = await fetch('/api/upload', {
+      method: 'POST',
+      body: formData,  // Send the FormData with the file
+    });
+
+    const result = await response.json();
+
+    if (result.status==200 || result.data.status==200) {
+      alert('XML file 1 uploaded successfully');
+      console.log(result);  // Log the result from the server
+      setLoading(false)
+    } else {
+      alert('Error uploading XML file 1');
+      console.error(result);  // Log the error from the server
+      setLoading(false)
+    }
+  } catch (error) {
+    alert('An error occurred during the upload');
+    console.error('Error:', error);
+    setLoading(false)
+  }
+};
 const importProductToShopify = async (product) => {
   // Structure the product data to match Shopify's product creation API format
 //   console.log('Original Product:', product);
@@ -242,7 +276,18 @@ function convertToShopifyProduct(data) {
 }
 
 
-
+async function handleDBProducts(){
+  setLoading(true)
+    try {
+      let res= await axios.get('/api/create-products')
+      let data= await res.json()
+      console.log(data)
+      setLoading(false)
+  } catch (error) {
+      console.log(error)
+      setLoading(false)
+    }
+}
 // Handler function for importing multiple products
 const handleProductImport = async () => {
   setLoading(true);
@@ -698,28 +743,70 @@ const handleMergeAndMap = async () => {
       <Title level={2} className="text-center text-indigo-600 mb-8">Shopify Product Uploader</Title>
 
       <div className="mb-6 space-y-6">
-        <Row justify="space-between" align="middle">
-          <Col><Text strong>Upload XML File 1:</Text></Col>
-          <Col>
-            <input
-              type="file"
-              onChange={(e) => handleFileUpload(e, setFile1)}
-              className="file:border-2 file:border-gray-300 file:rounded-md file:px-4 file:py-2 file:bg-indigo-500 file:text-white hover:file:bg-indigo-600 transition duration-300 ease-in-out"
-            />
-          </Col>
-        </Row>
+  <Row justify="space-between" align="middle" gutter={[16, 16]}>
+    <Col span={6}><Text strong>Product File:</Text></Col>
+    <Col span={12}>
+      <input
+        type="file"
+        onChange={(e) => handleFileUpload(e, setFile1)}
+        className="file:border-2 file:border-gray-300 file:rounded-md file:px-4 file:py-2 file:bg-indigo-500 file:text-white hover:file:bg-indigo-600 transition duration-300 ease-in-out"
+      />
+      <Space style={{ marginTop: '10px', width: '100%' }} direction="horizontal" align="center">
+  <Tooltip title="Upload XML File 1">
+    <Button
+      type="primary"
+      loading={loading}
+      onClick={uploadFile1}
+      icon={<UploadOutlined />}
+      size="large"
+      style={{
+        borderRadius: '8px',
+        background: 'transparent',
+        border: '2px solid #1890ff',
+        color: '#1890ff',
+        boxShadow: 'none',
+        transition: 'all 0.3s ease',
+      }}
+      iconStyle={{ fontSize: '24px' }}
+    >Save Product File</Button>
+  </Tooltip>
 
-        <Row justify="space-between" align="middle">
-          <Col><Text strong>Upload XML File 2:</Text></Col>
-          <Col>
-            <input
-              type="file"
-              onChange={(e) => handleFileUpload(e, setFile2)}
-              className="file:border-2 file:border-gray-300 file:rounded-md file:px-4 file:py-2 file:bg-indigo-500 file:text-white hover:file:bg-indigo-600 transition duration-300 ease-in-out"
-            />
-          </Col>
-        </Row>
-      </div>
+  <Tooltip title="Create Products from File">
+    <Button
+      type="primary"
+      onClick={handleDBProducts}
+      loading={loading}
+      icon={<AppstoreAddOutlined />}
+      size="large"
+      style={{
+        borderRadius: '8px',
+        background: 'transparent',
+        border: '2px solid #52c41a',
+        color: '#52c41a',
+        boxShadow: 'none',
+        transition: 'all 0.3s ease',
+      }}
+      iconStyle={{ fontSize: '24px' }}
+    >Create Product from XML</Button>
+  </Tooltip>
+</Space>
+
+    </Col>
+  </Row>
+
+  <Row justify="space-between" align="middle" gutter={[16, 16]}>
+    <Col span={6}><Text strong>Upload XML File 2:</Text></Col>
+    <Col span={12}>
+      <input
+        type="file"
+        onChange={(e) => handleFileUpload(e, setFile2)}
+        className="file:border-2 file:border-gray-300 file:rounded-md file:px-4 file:py-2 file:bg-indigo-500 file:text-white hover:file:bg-indigo-600 transition duration-300 ease-in-out"
+      />
+    </Col>
+  </Row>
+</div>
+
+
 
       <Button
         type="primary"
@@ -758,9 +845,9 @@ const handleMergeAndMap = async () => {
         {loading ? <Spin size="small" /> : "Download CSV"}
       </Button>
     
-      {mergedData.length > 0 && (
+      {/* {mergedData.length > 0 && (
                     <ProgressComponent percent={receivedProducts}/>
-      )}
+      )} */}
       {mergedData.length > 0 && (
         <Button
           type="primary"

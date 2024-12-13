@@ -2,9 +2,11 @@ require('isomorphic-fetch');
 const express = require('express');
 const bodyParser = require('koa-bodyparser');
 const dotenv = require('dotenv');
+const {koaBody}  = require('koa-body');
 const Koa = require('koa');
 const next = require('next');
-const fs = require('fs');
+const fs = require('fs').promises;
+
 const { XMLParser  } = require('fast-xml-parser')
 const axios= require('axios')
 const { default: createShopifyAuth } = require('@shopify/koa-shopify-auth');
@@ -20,6 +22,8 @@ const getSubscriptionUrl = require('./server/getSubscriptionUrl');
 const db = require('./db'); // Import the SQLite connection
 const { route } = require('next/dist/server/router');
 const { message } = require('antd');
+const { xml2js } = require('xml-js');
+const path = require('path');
 const port = parseInt(process.env.PORT, 10) || 3000;
 const dev = process.env.NODE_ENV !== 'production';
 const app = next({ dev });
@@ -98,7 +102,59 @@ app.prepare().then(() => {
     console.log('Received webhook:', ctx.state.webhook);
   });
 
+  server.use(koaBody({
+    multipart: true,  // Enable multipart parsing
+    formidable: {
+      uploadDir: path.join(__dirname, 'uploads'),  // Folder to store uploaded files
+      keepExtensions: true,  // Keep file extensions
+      maxFileSize: 100 * 1024 * 1024,  // Set file size limit (e.g., 100 MB)
+    },
+  }));
+  router.post('/api/upload', async (ctx) => {
+    const { files } = ctx.request;
   
+    if (!files || !files.file) {
+      ctx.status = 400;
+      ctx.body = { error: 'No file uploaded' };
+      return;
+    }
+  
+    const uploadedFile = files.file;
+    const oldFilePath = uploadedFile.filepath;  // Temporary path where the file is saved
+    const newFileName = ctx.session.shop + path.extname(uploadedFile.originalFilename);  // Use original file extension
+    const newFilePath = path.join(__dirname, 'uploads', newFileName);  // New file path with the desired name
+  
+    try {
+      // Use fs.rename() to rename the file
+      fs.rename(oldFilePath, newFilePath, (err) => {
+        if (err) {
+          ctx.status = 500;
+          ctx.body = { error: 'Error renaming or processing the file' };
+          console.error('Error renaming file:', err);
+          return;
+        }
+  
+        console.log('File renamed and saved to:', newFilePath);
+  
+        // Respond to the client
+        ctx.body = {
+          status:200,
+          message: 'File uploaded and renamed successfully',
+          file: {
+            originalFileName: uploadedFile.originalFilename,
+            newFileName: newFileName,
+            path: newFilePath,
+          },
+        };
+      });
+    } catch (error) {
+      ctx.status = 500;
+      ctx.body = { error: 'Error processing the file' };
+      console.error('Error:', error);
+    }
+  });
+
+
   router.post('/webhooks/orders/create', (ctx) => {
     console.log('Received new order webhook:', ctx.state.webhook);
 
@@ -450,7 +506,7 @@ router.delete('/api/deleteAPI', async (ctx) => {
 router.post('/api/createProduct', async (ctx) => {
   const productData = ctx.request.body;
 
-  console.log('Received product data:', productData);
+
 
   // Validate required fields
   const { title, bodyHtml, vendor, productType, variants } = productData;
@@ -481,8 +537,7 @@ router.post('/api/createProduct', async (ctx) => {
           tags: productData.tags ? productData.tags.split(',') : [],
           variants: productData.variants.map(variant => ({
               option1: variant.option1, // Required
-              price: (variant.price && !isNaN(parseFloat(variant.price))) ? parseFloat(variant.price) : 0,
-
+              price: (variant.price && !isNaN(parseFloat(variant.price))) ? parseFloat(variant.price) :"",
               sku: variant.sku || null, // Optional SKU
               requires_shipping: variant.requiresShipping || false, // Optional shipping requirement
               inventory_management: "shopify",
@@ -568,6 +623,76 @@ async function axiosWithRetry(config, retries = 1, retryDelay = 1000) {
 
 
 
+router.post('/api/update-sync-settings', async (ctx) => {
+  const shopName= ctx.session.shop
+  const {  syncType ,selectedCategories,selectedProductIds} = ctx.request.body;
+  selectedCategories
+  console.log(syncType,selectedCategories,shopName,selectedProductIds)
+  if (!shopName || !syncType ) {
+    ctx.status = 400;
+    ctx.body = { message: ' importType, syncType, selectedCategories, selectedProductIds is required or invalid shop' };
+    return;
+  }
+  const shopID = await new Promise((resolve, reject) => {
+    db.getShopIDByShopName(shopName, (err, shopID) => {
+      if (err) {
+        console.error('Error fetching shopID:', err);
+        reject(new Error('Error fetching shop ID'));
+      }
+      resolve(shopID);
+    });
+  });
+
+  if (!shopID) {
+    ctx.status = 404;
+    ctx.body = { message: 'Shop ID not found for the given shop name' };
+    return;
+  }
+  db.upsertShopSyncSetting(shopID, syncType, selectedCategories, selectedProductIds, (err, changes) => {
+    if (err) {
+      console.error('Error updating importType:', err);
+      ctx.status = 500; // Internal Server Error
+      ctx.body = { message: 'Error updating importType', error: err.message };
+    } else if (changes === 0) {
+      ctx.status = 404; // Not Found
+      ctx.body = { message: 'Shop not found or no changes made.' };
+    } else {
+      ctx.status = 200; // OK
+      ctx.body = { message: 'ImportType updated successfully' };
+    }
+  });
+  
+});
+
+// Route to get the importType
+router.get('/api/get-sync-settings', async (ctx) => {
+  const shopName= ctx.session.shop
+
+   try {
+    const shopID = await new Promise((resolve, reject) => {
+       db.getShopIDByShopName(shopName, (err, shopID) => {
+         if (err) {
+           console.error('Error fetching shopID:', err);
+           reject(new Error('Error fetching shop ID'));
+         }
+         resolve(shopID);
+       });
+     });
+ 
+     if (!shopID) {
+       ctx.status = 404;
+       ctx.body = { message: 'Shop ID not found for the given shop name' };
+       return;
+     }
+ 
+   let data= await db.getShopSyncSetting(shopID)
+   ctx.body= data
+   } catch (error) {
+    console.log(error)
+    ctx.body= {error:"Something Went Wrong "}
+   }
+
+  });
 
 
 router.get('/api/syncStock', async (ctx) => {
@@ -848,35 +973,661 @@ router.get('/api/getShopAPIData', async (ctx) => {
   }
 });
 
+router.get('/api/create-products', async (ctx) => {
+  const parseXML = async () => {
+    console.log("Welcome Here too");
+    try {
+      async function readFile() {
+        const text = await fs.readFile('uploads/'+ctx.session.shop+".xml", 'utf-8'); // Reads the file content as a string
+        return text; // Output the content of the XML file
+      }
+      
+      let text = await readFile();
+      const data = xml2js(text, { compact: true });
+      return data.offer.products.product;
+    } catch (error) {
+      throw new Error('Error parsing XML file');
+    }
+  };
+
+  const mergeXMLData = async (obj1) => {
+    let mergeData = []; // Array to store the merged products
+    let unmatchedEans = []; // Array to store unmatched EAN codes
+
+    // Iterate over products in obj1
+    await Promise.all(obj1.map(async (product) => {
+      if (!product.variants || !product.variants.variant) {
+        console.error(`Invalid product structure: Missing variants in product`, product);
+        return; // Skip this product if it has no variants
+      }
+
+      let mergedVariants = []; // Array to store the merged variants
+      let picturesArray = [];
+
+      try {
+        // Handle product pictures
+        if (product.pictures && product.pictures.picture) {
+          const pictures = Array.isArray(product.pictures.picture)
+            ? product.pictures.picture
+            : [product.pictures.picture];
+          picturesArray = pictures.map(p => p._text).filter(url => url); // Convert to array of URLs
+        }
+
+        // Handle product variants
+        const variants = Array.isArray(product.variants.variant)
+          ? product.variants.variant
+          : [product.variants.variant];
+        variants.forEach((variant) => {
+          const eanCode = variant.code || variant._attributes?.code;
+          if (!eanCode) {
+            console.error(`Variant missing EAN code: ${JSON.stringify(variant)}`);
+            unmatchedEans.push(variant); // Store unmatched variants for debugging
+            return;
+          }
+          mergedVariants.push({
+            code: eanCode,
+            size: variant.size || variant._attributes?.size || "Unknown"
+          });
+        });
+
+        // Create merged product object
+        const mergedProduct = {
+          ...product, // Copy all properties of the product
+          pictures: picturesArray, // Add processed pictures
+          variants: mergedVariants // Add processed variants
+        };
+
+        // Save the merged product to the database
+        const savedProduct = await db.saveProductToDB(mergedProduct);
+        console.log("SavedProduct:", savedProduct);
+
+        mergeData.push(mergedProduct);
+      } catch (error) {
+        console.error('Error processing product:', error);
+      }
+    }));
+
+    // Optional cleanup: filter out products with no variants
+    mergeData = mergeData.filter(product => product.variants.length > 0);
+
+    // Log unmatched EANs for debugging purposes
+    if (unmatchedEans.length > 0) {
+      console.log("Unmatched EANs:", unmatchedEans);
+    }
+
+    return { mergeData, unmatchedEans };
+  };
+
+  console.log("Welcome to Code");
+  let data = await parseXML();
+  let { mergeData } = await mergeXMLData(data);
+  ctx.body = { mergeData };
+});
+
+router.get('/api/get-products', async (ctx) => {
+  try {
+    // Get page and limit from query parameters, or set default values
+    const page = parseInt(ctx.query.page) || 1; // Default to page 1
+    const limit = parseInt(ctx.query.limit) || 100; // Default to 100 products per page
+
+    // Calculate offset for pagination
+    const offset = (page - 1) * limit;
+
+    // Fetch the paginated products from the database
+    const data = await db.getAllProductsFromDB(limit, offset); // Pass limit and offset to the DB query
+
+    if (data && data.length > 0) {
+      // Optionally, you can transform or merge data if needed
+      const mergeData = data.map(product => ({
+        ...product, 
+        additionalInfo: "Some additional merged data"  // Example of adding more information
+      }));
+
+      // Get total count of products in the database for pagination info
+      const totalCount = await db.countProducts();  // You should have a function to count all products
+
+      // Return paginated results along with pagination details
+      ctx.body = {
+        status: 'success',
+        data: mergeData,
+        pagination: {
+          page,
+          limit,
+          total: totalCount,  // Total number of products
+          totalPages: Math.ceil(totalCount / limit)  // Total number of pages
+        }
+      };
+    } else {
+      ctx.body = {
+        status: 'error',
+        message: 'No products found'
+      };
+    }
+  } catch (err) {
+    console.error('Error in /api/get-products:', err);
+    ctx.body = {
+      status: 'error',
+      message: 'An error occurred while fetching the products'
+    };
+  }
+});
+
+router.get('/api/get-categories', async (ctx) => {
+  try {
+    const categories = await db.getCategories(); // Call the helper function
+
+    ctx.status = 200;
+    ctx.body = { categories }; // Return categories to the client
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { status: 'error', message: err };
+  }
+});
+
 
 // Function to get shopID by shopName
 
 
 // Function to get API details by shopID
+const syncShopifyProducts = async (shopUrl, accessToken, syncType, selectedCategories, selectedProductIds) => {
+  console.log("me",syncType)
+  try {
+    // Validate syncType
+    if (!['all', 'categories', 'product_ids'].includes(syncType)) {
+      throw new Error(`Invalid syncType: ${syncType}`);
+    }
 
+    const baseUrl = `https://${shopUrl}/admin/api/2023-10`; // Shopify API base URL
+    const headers = {
+      'X-Shopify-Access-Token': accessToken,
+      'Content-Type': 'application/json',
+    };
+    
+    // Fetch products to sync based on syncType
+    let productsToSync = [];
+    if (syncType === 'all') {
+      await syncAllProducts(baseUrl,headers,shopUrl)
+      // Fetch all products from DB
+    } else if (syncType === 'product_ids') {
+      // Fetch selected products by IDs
+      console.log("selectedProductIds",selectedProductIds)
+      productsToSync = await db.getProductsByProductIDsFromDB(selectedProductIds);
+      console.log("Data here",productsToSync)
+    }
 
-router.post('/api/update-price-adjustment', async (ctx) => {
-  const {  priceAdjustmentType, priceAdjustmentAmount } = ctx.request.body;
+    // Sync Categories if selected or syncType is 'all'
+    // TODO: Varient Need to Change
+    if (syncType === 'categories' || syncType === 'all') {
+      console.log("hi10")
+      let shop= shopUrl.split('.')[0]
+      console.log(shop)
+      await syncCategories(selectedCategories, baseUrl, headers,shopUrl);
+    }
 
-  // Validate input
-  if (!priceAdjustmentType || !priceAdjustmentAmount) {
-    ctx.status = 400;
-    ctx.body = { error: 'shopName, priceAdjustmentType, and priceAdjustmentAmount are required' };
-    return;
+    // Sync Products based on selected product IDs or syncType 'all'
+    if (syncType === 'product_ids' || syncType === 'all') {
+
+      await syncProducts(productsToSync, baseUrl, headers,shopUrl);
+    }
+
+    return { message: 'Sync successful' };
+
+  } catch (error) {
+    console.error('Error syncing with Shopify:', error.message);
+    throw new Error('Error syncing products with Shopify');
   }
+};
+
+
+const fetchFactoryPriceData = async (sku) => {
+  const url = `https://api.factoryprice.eu/stocks/${sku}?username=info@aboutstyle.lt&salt=ABC707B5-3720`;
 
   try {
-    const result = await db.updatePriceAdjustment(ctx.session.shop, priceAdjustmentType, priceAdjustmentAmount);
+    const response = await fetch(url, { method: 'GET' });
+    if (!response.ok) {
+      console.error(`Failed to fetch data for SKU: ${sku}, Status: ${response.status}`);
+      return null;
+    }
+
+    // Get the response as text (since it's XML)
+    const responseText = await response.text();
+
+    // Initialize the XML parser
+    const jsonObj = parser.parse(responseText); // Parse XML to JSON object
+
+    // Extract values from the parsed JSON object
+    const ean = jsonObj.response?.stock?.ean || "Unknown EAN";
+    const stockAvailable = parseFloat(jsonObj.response?.stock?.stock_available || 0);
+
+    return { ean, stockAvailable };
+  } catch (error) {
+    console.error(`Error fetching data for SKU: ${sku}`, error.message);
+    return null;
+  }
+};
+
+
+// Helper function to sync Categories
+const syncCategories = async (selectedCategories, baseUrl, headers, shop) => {
+  const PriceDetails = await db.getPriceAdjustmentByShopName(shop);
+  let setDetails = {}; // Initialize setDetails for possible future use
+
+  try {
+    for (const category of selectedCategories) {
+      let offset = 0;
+
+      while (true) {
+        const productsToSync = await db.getProductsByCategoryFromDB([category], 50, offset);
+        if (productsToSync.length === 0) break;
+
+        for (const product of productsToSync) {
+          // Parse variants and images
+          const parsedVariants = typeof product.variants === 'string' ? JSON.parse(product.variants || '[]') : [];
+          const parsedImages = typeof product.pictures === 'string' ? JSON.parse(product.pictures || '[]') : [];
+
+          if (!parsedVariants.length) {
+            console.warn(`Skipping product ${product.productID} due to no variants.`);
+            continue;
+          }
+
+          
+          
+         
+          const uniqueHandle = `${product.productID || ''}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+          const productPayload = {
+            product: {
+              body_html: product.description || '',
+              handle: uniqueHandle,
+              product_type: product.category || '',
+              status: 'active',
+              tags: product.gender ? `${product.gender}, ${product.category}, ${product.color}` : '',
+              title: product.productID,
+              vendor: product.producer || '',
+              images: parsedImages.map((image, index) => ({
+                src: image,
+                position: index + 1,
+              })),
+              variants: [],  // We'll populate this after fetching the data
+              options: [{
+                name: 'Size',
+                position: 1,
+                values: parsedVariants.map((variant) => variant.size || 'Default'),
+              }],
+            },
+          };
+
+          // Populate variants with price, SKU, and stock information
+          for (const variant of parsedVariants) {
+            const data = await fetchFactoryPriceData(variant.code);
+            if (data) {
+              const price = parseFloat(PriceDetails.type === 'percentage'
+                ? product.suggested_price_netto_pln + (product.suggested_price_netto_pln * (PriceDetails.value / 100))  // Apply percentage
+                : product.suggested_price_netto_pln + PriceDetails.value || 10);  // Ensure valid price
+
+              productPayload.product.variants.push({
+                sku: variant.code || '',
+                price: price.toFixed(2),  // Set the price for the variant
+                inventory_quantity: data.stockAvailable,  // Set inventory_quantity from fetched data
+                option1: variant.size || 'Havana',  // Default size if none provided
+                position: parsedVariants.indexOf(variant) + 1,  // Position of the variant in the list
+                inventory_management: 'shopify',  // Ensure inventory is managed by Shopify
+              });
+            } else {
+              console.warn(`No stock data for SKU: ${variant.code}`);
+            }
+          }
+
+          console.log("Product Payload with variants:", productPayload.product.variants);
+
+          // Now, proceed with updating or creating the product (syncing with Shopify)
+          for (const variant of parsedVariants) {
+            const sku = variant.code;
+
+            if (!sku || sku.trim() === '') {
+              console.warn(`Invalid SKU for product ${product.productID}, skipping update.`);
+              continue;
+            }
+
+            try {
+              // Search for existing product by SKU
+              const existingProductResponse = await axios.get(`${baseUrl}/products.json`, {
+                headers,
+                params: { sku },
+              });
+              console.log("varient1",variant)
+              const existingProduct = existingProductResponse.data.products.find((prod) =>
+                prod.variants.some((v) => v.sku === sku)
+              );
+
+              if (existingProduct) {
+                const existingVariant = existingProduct.variants.find((v) => v.sku === sku);
+                const apiData= await fetchFactoryPriceData(sku)
+                if(apiData==null){
+                  throw Error("Api Data not Found")
+                }
+               console.log(apiData.stockAvailable,"apiData")
+               console.log(product.suggested_price_netto_pln,"Price Here")
+                if (existingVariant) {
+                  // Update existing variant with new price and quantity
+                  const updateVariantResponse = await axios.put(
+                    `${baseUrl}/products/${existingProduct.id}/variants/${existingVariant.id}.json`,
+                    {
+                      variant: {
+                        price: PriceDetails.data.priceAdjustmentType === 'percentage'
+                          ? parseFloat(product.suggested_price_netto_pln) + (parseFloat(product.suggested_price_netto_pln) * (parseFloat(PriceDetails.data.priceAdjustmentAmount) / 100))  // Apply percentage
+                          : parseFloat(product.suggested_price_netto_pln) + parseFloat(PriceDetails.data.priceAdjustmentAmount) || 10,
+                          inventory_quantity:  apiData.stockAvailable|| 10,  // Ensure quantity is passed
+                        inventory_management: 'shopify',  // Ensure inventory management is by Shopify
+                      },
+                    },
+                    { headers }
+                  );
+
+                  if (updateVariantResponse.status === 200) {
+                    console.log(`Updated variant with SKU: ${sku}`, updateVariantResponse.data);
+                  } else {
+                    console.error(`Failed to update variant with SKU: ${sku}`, updateVariantResponse.data);
+                  }
+                } else {
+                  // Add a new variant to the existing product
+                  const addVariantResponse = await axios.post(
+                    `${baseUrl}/products/${existingProduct.id}/variants.json`,
+                    {
+                      variant: {
+                        sku,
+                        price: parseFloat(variant.price || 20).toFixed(2),
+                        inventory_quantity: variant.quantity || 10,
+                        inventory_management: 'shopify',  // Ensure inventory management is by Shopify
+                      },
+                    },
+                    { headers }
+                  );
+                  console.log(`Added new variant with SKU: ${sku}`, addVariantResponse.data);
+                }
+              } else {
+                // Create a new product if none exists
+                const createResponse = await axios.post(`${baseUrl}/products.json`, productPayload, { headers });
+                console.log(`Created new product with SKU: ${sku}`, createResponse.data);
+              }
+            } catch (error) {
+              console.error(`Error syncing SKU: ${sku}`, error.response?.data || error.message);
+            }
+          }
+        }
+
+        offset += 50; // Increment offset for pagination
+      }
+    }
+
+    console.log('Sync completed successfully for all categories.');
+  } catch (error) {
+    console.error('Error syncing products by category:', error.response?.data || error.message);
+    throw new Error('Error syncing products by category');
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+// Helper function to sync Products
+const syncProducts = async (productIDs, baseUrl, headers, shop) => {
+  try {
+    const PriceDetails = await db.getPriceAdjustmentByShopName(shop);
+
+    let setDetails = {}; // Initialize setDetails for possible future use
+    console.log("productIDs",productIDs)
+    let productsToSync= productIDs
+    // const productsToSync = await db.getProductsByProductIDsFromDB(productIDs);
+    console.log("productsToSync",productsToSync)
+    if (productsToSync.length === 0) {
+      console.log('No products found for the given productIDs.');
+      return;
+    }
+
+    for (const product of productsToSync) {
+      // Parse variants and images
+      const parsedVariants = typeof product.variants === 'string' ? JSON.parse(product.variants || '[]') : [];
+      const parsedImages = typeof product.pictures === 'string' ? JSON.parse(product.pictures || '[]') : [];
+
+      if (!parsedVariants.length) {
+        console.warn(`Skipping product ${product.productID} due to no variants.`);
+        continue;
+      }
+
+     
+
+      const uniqueHandle = `${product.productID || ''}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+      const productPayload = {
+        product: {
+          body_html: product.description || '',
+          handle: uniqueHandle,
+          product_type: product.category || '',
+          status: 'active',
+          tags: product.gender ? `${product.gender}, ${product.category}, ${product.color}` : '',
+          title: product.productID,
+          vendor: product.producer || '',
+          images: parsedImages.map((image, index) => ({
+            src: image,
+            position: index + 1,
+          })),
+          variants: [],
+          options: [{
+            name: 'Size',
+            position: 1,
+            values: parsedVariants.map((variant) => variant.size || 'Default'),
+          }],
+        },
+      };
+      console.log("loop")
+      for (const variant of parsedVariants) {
+        const data = await fetchFactoryPriceData(variant.code);
+        if (data) {
+          console.log("type and amount",PriceDetails.data.priceAdjustmentType,PriceDetails.data.priceAdjustmentAmount)
+          console.log("Amount", product.suggested_price_netto_pln, typeof product.suggested_price_netto_pln)
+          const price = parseFloat(PriceDetails.data.priceAdjustmentType === 'percentage'
+            ? product.suggested_price_netto_pln + (product.suggested_price_netto_pln * (parseFloat(PriceDetails.data.priceAdjustmentAmount) / 100))  // Apply percentage
+            : product.suggested_price_netto_pln + parseFloat(PriceDetails.data.priceAdjustmentAmount) || 10);
+
+          productPayload.product.variants.push({
+            sku: variant.code || '',
+            price: price,
+            inventory_quantity: parseInt(data.stockAvailable),
+            option1: variant.size || 'Default',
+            position: parsedVariants.indexOf(variant) + 1,
+            inventory_management: 'shopify',
+          });
+        } else {
+          console.warn(`No stock data for SKU: ${variant.code}`);
+        }
+      }
+
+      console.log("Product Payload with variants:", productPayload.product.variants);
+
+      for (const variant of parsedVariants) {
+        const sku = variant.code;
+
+        if (!sku || sku.trim() === '') {
+          console.warn(`Invalid SKU for product ${product.productID}, skipping update.`);
+          continue;
+        }
+
+        try {
+          const existingProductResponse = await axios.get(`${baseUrl}/products.json`, {
+            headers,
+            params: { sku },
+          });
+
+          const existingProduct = existingProductResponse.data.products.find((prod) =>
+            prod.variants.some((v) => v.sku === sku)
+          );
+
+          if (existingProduct) {
+            const existingVariant = existingProduct.variants.find((v) => v.sku === sku);
+            const apiData = await fetchFactoryPriceData(sku);
+            if (!apiData) {
+              throw new Error("API Data not Found");
+            }
+
+            if (existingVariant) {
+              console.log("Existing",PriceDetails.data,product.suggested_price_netto_pln)
+              
+              const updateVariantResponse = await axios.put(
+                `${baseUrl}/products/${existingProduct.id}/variants/${existingVariant.id}.json`,
+                
+                {
+                  variant: {
+                    price: parseFloat(PriceDetails.data.priceAdjustmentType == 'percentage'
+                      ? parseFloat(product.suggested_price_netto_pln) + (parseFloat(product.suggested_price_netto_pln) * (parseFloat(PriceDetails.data.priceAdjustmentAmount) / 100))
+                      : parseFloat(product.suggested_price_netto_pln) + parseFloat(PriceDetails.data.priceAdjustmentAmount)) ||10,
+                    inventory_quantity: apiData.stockAvailable || 10,
+                    inventory_management: 'shopify',
+                  },
+                },
+                { headers }
+              );
+
+              if (updateVariantResponse.status === 200) {
+                console.log(`Updated variant with SKU: ${sku}`, updateVariantResponse.data);
+              } else {
+                console.error(`Failed to update variant with SKU: ${sku}`, updateVariantResponse.data);
+              }
+            } else {
+              console.log("Updatation")
+              const addVariantResponse = await axios.post(
+                `${baseUrl}/products/${existingProduct.id}/variants.json`,
+                {
+                  variant: {
+                    sku,
+                    price: parseFloat(PriceDetails.type === 'percentage'
+                      ? parseFloat(product.suggested_price_netto_pln) + (parseFloat(product.suggested_price_netto_pln) * (PriceDetails.value / 100))
+                      : parseFloat(product.suggested_price_netto_pln) + PriceDetails.value),
+                    inventory_quantity: apiData.stockAvailable || 10,
+                    inventory_management: 'shopify',
+                  },
+                },
+                { headers }
+              );
+              console.log(`Added new variant with SKU: ${sku}`, addVariantResponse.data);
+            }
+          } else {
+            console.log("new")
+            const createResponse = await axios.post(`${baseUrl}/products.json`, productPayload, { headers });
+            console.log(`Created new product with SKU: ${sku}`, createResponse.data);
+          }
+        } catch (error) {
+          // console.log(error)
+          console.error(`Error syncing SKU: ${sku}`, error.response?.data || error.message);
+        }
+      }
+    }
+
+    console.log('Sync completed successfully for all productIDs.');
+  } catch (error) {
+    console.error('Error syncing products by productID:', error.response?.data || error.message);
+    throw new Error('Error syncing products by productID');
+  }
+};
+
+const syncAllProducts = async (baseUrl, headers, shop) => {
+  try {
+    const batchSize = 100; // Adjust batch size based on your needs
+    let offset = 0;
+    let productsBatch;
+
+    console.log("Starting full product sync...");
+
+    do {
+      // Fetch products in batches
+      productsBatch = await getAllProductsFromDB(batchSize, offset);
+      console.log(`Fetched ${productsBatch.length} products with offset ${offset}`);
+
+      if (productsBatch.length > 0) {
+        // Extract productIDs from the batch
+        const productIDs = productsBatch.map(product => product.productID);
+
+        // Call the syncProducts function for the current batch
+        await syncProducts(productIDs, baseUrl, headers, shop);
+      }
+
+      // Increment offset for the next batch
+      offset += batchSize;
+    } while (productsBatch.length > 0); // Continue until no more products are retrieved
+
+    console.log("Sync all products completed successfully.");
+  } catch (error) {
+    console.error("Error in syncAllProducts:", error.message || error);
+  }
+};
+
+// Router handling the /sync-shopify request
+router.get('/api/sync-shopify', async (ctx) => {
+  try {
+    // Validate session data
+    if (!ctx.session.shop || !ctx.session.accessToken) {
+      ctx.status = 400;
+      ctx.body = { error: 'Shop URL or Access Token missing from session.' };
+      return;
+    }
+
+    // Get shop ID from session or DB
+    const shopID = await new Promise((resolve, reject) => {
+      db.getShopIDByShopName(ctx.session.shop, (err, shopID) => {
+        if (err) {
+          reject(new Error('Shop not found in database'));
+        } else {
+          resolve(shopID);
+        }
+      });
+    });
+    console.log(shopID)
+    // Fetch sync settings from the database
+    const syncSettings = await db.getShopSyncSetting(shopID);
+    console.log(syncSettings)
+    // If no sync settings found for this shopId, return an error
+    if (syncSettings.message) {
+      ctx.status = 404;
+      ctx.body = { error: syncSettings.message };
+      return;
+    }
+
+    // Extract sync type, selected categories, and selected product IDs from syncSettings
+    const { sync_type, selected_categories, selected_product_ids } = syncSettings;
+    // Convert selected_categories (string) into an array, split by comma
+    const selectedCategories = selected_categories ? selected_categories.split(',') : [];
+    const selectedProductIds = selected_product_ids ? selected_product_ids.split(',') : [];
+
+    // Fetch shop URL and access token (from session)
+    const shopUrl = ctx.session.shop;
+    const accessToken = ctx.session.accessToken;
+
+    // Sync products with Shopify
+    const result = await syncShopifyProducts(shopUrl, accessToken, sync_type, selectedCategories, selectedProductIds);
+
+    // Return success response with result
     ctx.status = 200;
-    ctx.body = { message: result };
-  } catch (err) {
+    ctx.body = {
+      message: result.message,
+      result,
+    };
+  } catch (error) {
+    // Return error if something goes wrong
+    console.error('Error in syncShopify route:', error.message);
     ctx.status = 500;
-    ctx.body = { error: err };
+    ctx.body = { error: 'Error syncing with Shopify', details: error.message };
   }
 });
-  
-  
-router.get('/api/get-price-adjustment', async (ctx) => {
+
+
+ router.get('/api/get-price-adjustment', async (ctx) => {
   const { shop } = ctx.session;  // Get shop name from session
 
   // Check if the shop name is provided in the session
@@ -905,6 +1656,31 @@ router.get('/api/get-price-adjustment', async (ctx) => {
   }
 });
 
+  
+  
+router.post('/api/update-price-adjustment', async (ctx) => {
+  const {  priceAdjustmentType, priceAdjustmentAmount } = ctx.request.body;
+
+  // Validate input
+  if (!priceAdjustmentType || !priceAdjustmentAmount) {
+    ctx.status = 400;
+    ctx.body = { error: 'shopName, priceAdjustmentType, and priceAdjustmentAmount are required' };
+    return;
+  }
+
+  try {
+    const result = await db.updatePriceAdjustment(ctx.session.shop, priceAdjustmentType, priceAdjustmentAmount);
+    ctx.status = 200;
+    ctx.body = { message: result };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { error: err };
+  }
+});
+  
+  
+
+
   server.use(graphQLProxy({ version: ApiVersion.October19 }));
 
   router.get('*', verifyRequest(), async (ctx) => {
@@ -915,7 +1691,7 @@ router.get('/api/get-price-adjustment', async (ctx) => {
 
   server.use(router.allowedMethods());
   server.use(router.routes());
-
+  
   server.listen(port, () => {
     console.log(`> Ready on http://localhost:${port}`);
   });

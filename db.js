@@ -28,6 +28,65 @@ db.run(`
   }
 });
 
+db.run(`
+  CREATE TABLE IF NOT EXISTS shop_details (
+    id INTEGER PRIMARY KEY AUTOINCREMENT ,
+    shopID TEXT NOT NULL ,
+    apikey TEXT NOT NULL,
+    apiSecret TEXT NOT NULL,
+    apiurl TEXT NOT NULL,
+    syncProducts BOOLEAN DEFAULT FALSE,
+    syncOrders BOOLEAN DEFAULT FALSE,
+    createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+  )
+`, (err) => {
+  if (err) {
+    console.error('Error creating shop_details table:', err);
+  } else {
+    console.log('shop_details table created or already exists.');
+  }
+});
+
+db.run(`
+  CREATE TABLE IF NOT EXISTS shop_sync_settings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    shop_id INTEGER NOT NULL, -- Foreign key linking to the shop table
+    sync_type TEXT NOT NULL CHECK(sync_type IN ('all', 'categories', 'product_ids')), -- Sync type: 'all', 'categories', or 'product_ids'
+    selected_categories TEXT, -- Stores a comma-separated list of category IDs (if sync_type is 'categories')
+    selected_product_ids TEXT, -- Stores a comma-separated list of product IDs (if sync_type is 'product_ids')
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (shop_id) REFERENCES shop(id) ON DELETE CASCADE
+  )
+`, (err) => {
+  if (err) {
+    console.error('Error creating shop_sync_settings table:', err);
+  } else {
+    console.log('shop_sync_settings table created or already exists.');
+  }
+});
+db.run(`CREATE TABLE IF NOT EXISTS products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  productID TEXT NOT NULL UNIQUE,
+  ModelID TEXT,
+  model TEXT,
+  color TEXT,
+  gender TEXT,
+  category TEXT,
+  producer TEXT,
+  suggested_price_netto_pln REAL,
+  wholesale_price_netto_pln REAL,
+  vat INTEGER,
+  photo_link_small TEXT,
+  photo_link_large TEXT,
+  material_composition TEXT,
+  washing_recipe TEXT,
+  description TEXT,
+  sizechart TEXT,
+  variants TEXT,
+  pictures  TEXT
+);
+`);
 
 db.run(`
   CREATE TABLE IF NOT EXISTS orders (
@@ -46,7 +105,7 @@ db.run(`
 });
 // Create the shop_details table if it doesn't exist
 db.run(`
-  CREATE TABLE IF NOT EXISTS shop_details (
+  CREATE TABLE IF NOT EXISTS shop_api_settings (
     id INTEGER PRIMARY KEY AUTOINCREMENT ,
     shopID TEXT NOT NULL ,
     apikey TEXT NOT NULL,
@@ -221,68 +280,203 @@ const upsertShopDetails = (shopID, apikey, apiSecret, apiurl, syncProducts, sync
     });
   });
 };
-
-
-const updatePriceAdjustment = (shopName, newType, newAmount) => {
-  // Validate input values
-  if (newType !== 'fixed' && newType !== 'percentage') {
-    console.error('Invalid price adjustment type. It should be either "fixed" or "percentage".');
-    return;
-  }
-
-  if (isNaN(newAmount) || newAmount < 0) {
-    console.error('Invalid price adjustment amount. It should be a non-negative number.');
-    return;
-  }
-
-  // Update the price adjustment for the specified shop
-  const query = `
-    UPDATE shop
-    SET priceAdjustmentType = ?, priceAdjustmentAmount = ?
-    WHERE shopName = ?
-  `;
-  
-  db.run(query, [newType, newAmount, shopName], function(err) {
-    if (err) {
-      console.error('Error updating price adjustment:', err.message);
-    } else if (this.changes === 0) {
-      console.log('No shop found with the provided name.');
-    } else {
-      console.log(`Price adjustment updated for shop: ${shopName}`);
-    }
-  });
-};
-
-const getPriceAdjustmentByShopName = async (shopName) => {
+const saveProductToDB = async (productData) => {
   try {
-    // Normalize shopName by trimming whitespace and converting to lower case
-    const normalizedShopName = shopName.trim().toLowerCase();
+    // Convert pictures and variants to JSON strings for database storage
+    const variants = JSON.stringify(productData.variants || []);
+    const pictures = JSON.stringify(productData.pictures || []);
 
-    return new Promise((resolve, reject) => {
-      // SQL query to retrieve Price and Type based on shopName
-      const query = `
-        SELECT priceAdjustmentType, priceAdjustmentAmount 
-        FROM shop
-        WHERE LOWER(ShopName) = ?
-      `;
+    console.log("Saving Product Data:", {
+      productID: productData.productID,
+      ModelID: productData.ModelID,
+      model: productData.model,
+      variants: variants,
+      pictures: pictures
+    });
 
-      // Execute the query using the provided db instance
-      db.get(query, [normalizedShopName], (err, row) => {
+    // Insert the product into the database
+    const result = await new Promise((resolve, reject) => {
+      db.run(`
+        INSERT INTO products (
+          productID, ModelID, model, color, gender, category, producer,
+          suggested_price_netto_pln, wholesale_price_netto_pln, vat,
+          photo_link_small, photo_link_large, material_composition, washing_recipe,
+          description, sizechart, variants, pictures
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
+      `, [
+        productData.productID?._text || "Some",
+        productData.ModelID?._text || "Some",
+        productData.model?._text || "Some",
+        productData.color?._text || "Some",
+        productData.gender?._text || "Some",
+        productData.category?._text || "Some",
+        productData.producer?._cdata || "Some",
+        parseFloat(productData.suggested_price_netto_pln?._text || 0),
+        parseFloat(productData.wholesale_price_netto_pln?._text || 0),
+        parseInt(productData.vat?._text || "0"),
+        productData.photo_link_small?._text || "Some",
+        productData.photo_link_large?._text || "Some",
+        productData.material_composition?._cdata || "Some",
+        productData.washing_recipe?._cdata || "Some",
+        productData.description?._cdata || "Some",
+        productData.sizechart?._text || "Some",
+        variants ||"some",  // Save the variants as a JSON string
+        pictures || "Some"  // Save the pictures as a JSON string
+      ], function (err) {
         if (err) {
-          console.error('Error executing query:', err);
-          reject(new Error('Error fetching price adjustment data.'));
-        } else if (row) {
-          resolve({ data: row });
+          console.error("Error saving Product to DB:", err);
+          return reject(err);
         } else {
-          resolve({ data: null });  // No data found
+          console.log(`Product saved to the database. ID: ${this.lastID}`);
+          return resolve(this);
         }
       });
     });
-  } catch (error) {
-    console.error('Error retrieving price adjustment:', error);
-    throw new Error('Error fetching price adjustment data.');
+
+    return result;
+  } catch (e) {
+    console.error("Error in saveProductToDB:", e);
+    return null;
   }
 };
+
+
+
+
+
+const getAllProductsFromDB = async (limit = 100, offset = 0) => {
+  try {
+    // Query to retrieve all products with pagination (limit and offset)
+    const products = await new Promise((resolve, reject) => {
+      const query = `SELECT * FROM products LIMIT ? OFFSET ?`;
+      db.all(query, [limit, offset], (err, rows) => {
+        if (err) {
+          console.error('Error retrieving products from DB', err);
+          return reject(err);  // Reject the promise if there's an error
+        }
+        resolve(rows);  // Resolve with products data
+      });
+    });
+
+    return products;  // Return the list of products
+  } catch (e) {
+    console.error('Error in getAllProductsFromDB:', e);
+    return [];  // Return empty array if there's an error
+  }
+};
+
+
+
+const getProductsByCategoryFromDB = async (categories, limit, offset) => {
+  try {
+    // Wrap db.all in a promise to use async/await
+    const products = await new Promise((resolve, reject) => {
+      // Modify the SQL query to select products based on categories
+      const placeholders = categories.map(() => '?').join(', ');  // Create a list of placeholders for categories
+      const query = `SELECT * FROM products WHERE category IN (${placeholders}) LIMIT ? OFFSET ?`;
+
+      db.all(query, [...categories, limit, offset], (err, rows) => {
+        if (err) {
+          console.error('Error retrieving products by category from DB', err);
+          return reject(err);  // Reject the promise if there's an error
+        }
+        resolve(rows);  // Resolve the promise with the result (array of products)
+      });
+    });
+
+    return products;  // Return the array of products
+  } catch (e) {
+    console.error('Error in getProductsByCategoryFromDB:', e);
+    return [];  // Return an empty array if there's an error
+  }
+};
+
+const getProductsByIdsFromDB = async (productIds, limit = 100, offset = 0) => {
+  try {
+    // Create placeholders for product IDs in the query
+    const placeholders = productIds.map(() => '?').join(', ');
+    const query = `SELECT * FROM products WHERE id IN (${placeholders}) LIMIT ? OFFSET ?`;
+
+    const products = await new Promise((resolve, reject) => {
+      db.all(query, [...productIds, limit, offset], (err, rows) => {
+        if (err) {
+          console.error('Error retrieving products by ID from DB', err);
+          return reject(err);
+        }
+        resolve(rows);
+      });
+    });
+
+    return products;
+  } catch (e) {
+    console.error('Error in getProductsByIdsFromDB:', e);
+    return [];
+  }
+};
+
+
+const getProductsByProductIDsFromDB = async (productIDs) => {
+  console.log("productIDs",productIDs)
+  try {
+    const products = [];
+
+    await Promise.all(
+      productIDs.map(async (productID) => {
+        const product = await new Promise((resolve, reject) => {
+          const query = `SELECT * FROM products WHERE id = ?`;
+          db.get(query, [productID], (err, row) => {
+            if (err) {
+              console.error(`Error retrieving product with productID ${productID} from DB`, err);
+              console.log("row",row)
+              return reject(err);
+            }
+            resolve(row); // Resolve with the product (row)
+          });
+        });
+        if (product) products.push(product); // Add the product to the array
+      })
+    );
+
+    return products; // Return the array of products
+  } catch (e) {
+    console.error('Error in getProductsByProductIDsFromDB:', e);
+    return []; // Return an empty array if there's an error
+  }
+};
+
+
+// Add this function to your db logic
+const countProducts = async () => {
+  try {
+    const count = await new Promise((resolve, reject) => {
+      // SQL query to count the total number of products
+      db.get('SELECT COUNT(*) AS total FROM products', (err, row) => {
+        if (err) {
+          console.error('Error counting products:', err);
+          return reject(err);  // Reject the promise if there's an error
+        }
+        resolve(row.total);  // Resolve with the total count of products
+      });
+    });
+    return count;  // Return the count
+  } catch (e) {
+    console.error('Error in countProducts:', e);
+    return 0;  // Return 0 if there's an error
+  }
+};
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 // Function to find a shop by its name
@@ -385,6 +579,69 @@ const getShopAPIDataByShopID = (shopID, callback) => {
   );
 };
 
+const updatePriceAdjustment = (shopName, newType, newAmount) => {
+  return new Promise((resolve, reject) => {
+    // Validate input values
+    if (newType !== 'fixed' && newType !== 'percentage') {
+      return reject(new Error('Invalid price adjustment type. It should be either "fixed" or "percentage".'));
+    }
+
+    if (isNaN(newAmount) || newAmount < 0) {
+      return reject(new Error('Invalid price adjustment amount. It should be a non-negative number.'));
+    }
+
+    // Update the price adjustment for the specified shop
+    const query = `
+      UPDATE shop
+      SET priceAdjustmentType = ?, priceAdjustmentAmount = ?
+      WHERE shopName = ?
+    `;
+    
+    db.run(query, [newType, newAmount, shopName], function(err) {
+      if (err) {
+        return reject(new Error(`Error updating price adjustment: ${err.message}`));
+      }
+      
+      if (this.changes === 0) {
+        return reject(new Error('No shop found with the provided name.'));
+      }
+
+      resolve(`Price adjustment updated for shop: ${shopName}`);
+    });
+  });
+};
+
+const getPriceAdjustmentByShopName = async (shopName) => {
+  try {
+    // Normalize shopName by trimming whitespace and converting to lower case
+    const normalizedShopName = shopName.trim().toLowerCase();
+
+    return new Promise((resolve, reject) => {
+      // SQL query to retrieve Price and Type based on shopName
+      const query = `
+        SELECT priceAdjustmentType, priceAdjustmentAmount 
+        FROM shop
+        WHERE LOWER(ShopName) = ?
+      `;
+
+      // Execute the query using the provided db instance
+      db.get(query, [normalizedShopName], (err, row) => {
+        if (err) {
+          console.error('Error executing query:', err);
+          reject(new Error('Error fetching price adjustment data.'));
+        } else if (row) {
+          resolve({ data: row });
+        } else {
+          resolve({ data: null });  // No data found
+        }
+      });
+    });
+  } catch (error) {
+    console.error('Error retrieving price adjustment:', error);
+    throw new Error('Error fetching price adjustment data.');
+  }
+};
+
 const addOrder = (shopifyOrderNo, factoryPriceOrderNo, cancelled =0) => {
   return new Promise((resolve, reject) => {
     const query = `INSERT INTO orders (shopify_order_no, factory_price_order_no, cancelled) VALUES (?, ?, ?)`;
@@ -475,6 +732,152 @@ const deleteShopAPIData = (id) => {
   });
 };
 
+
+function updateImportType(shopName, importType, callback) {
+  const importTypeValue = JSON.stringify(importType); // Convert importType to JSON string if it's an array
+
+  db.run(`
+    UPDATE shop
+    SET importType = ?
+    WHERE shopName = ?
+  `, [importTypeValue, shopName], function(err) {
+    if (err) {
+      console.error('Error updating importType:', err);
+      callback(err, null);
+    } else {
+      console.log('ImportType updated successfully.');
+      callback(null, this.changes);  // `this.changes` will give the number of rows affected
+    }
+  });
+}
+
+function getImportType(shopName, callback) {
+  db.get('SELECT importType FROM shop WHERE shopName = ?', [shopName], (err, row) => {
+    if (err) {
+      console.error('Error fetching importType:', err);
+      callback(err, null);
+    } else {
+      if (row) {
+        const importType = row.importType ? JSON.parse(row.importType) : null;  // Parse JSON string if it's stored as JSON
+        callback(null, importType);
+      } else {
+        callback(null, null);  // No shop found
+      }
+    }
+  });
+}
+
+
+const upsertShopSyncSetting = (shopId, syncType, selectedCategories, selectedProductIds) => {
+  return new Promise((resolve, reject) => {
+    const currentTime = new Date().toISOString();
+    console.log('Upserting Shop Sync Setting:', { shopId, syncType, selectedCategories, selectedProductIds });
+
+    // Step 1: Check if the setting exists for the given shop_id
+    const checkQuery = `SELECT * FROM shop_sync_settings WHERE shop_id = ?`;
+    console.log('Running check query:', checkQuery);
+
+    db.get(checkQuery, [shopId], (err, existingSetting) => {
+      if (err) {
+        console.error('Error checking existing setting:', err);
+        return reject(new Error(`Error checking shop sync setting: ${err.message}`));
+      }
+
+      if (existingSetting) {
+        // Step 2: If setting exists, update it
+        console.log('Found existing setting. Updating...', existingSetting);
+
+        const updateQuery = `
+          UPDATE shop_sync_settings
+          SET sync_type = ?, 
+              selected_categories = ?, 
+              selected_product_ids = ?, 
+              updated_at = ?
+          WHERE shop_id = ?
+        `;
+        console.log('Running update query:', updateQuery);
+
+        db.run(
+          updateQuery,
+          [syncType, selectedCategories || null, selectedProductIds || null, currentTime, shopId],
+          function (updateErr) {
+            if (updateErr) {
+              console.error('Error updating shop sync setting:', updateErr);
+              return reject(new Error(`Error updating shop sync setting: ${updateErr.message}`));
+            }
+            console.log('Updated shop sync setting successfully.');
+            resolve({ message: 'Updated existing shop sync setting', shopId });
+          }
+        );
+      } else {
+        // Step 3: If no setting exists, insert a new one
+        console.log('No existing setting found. Inserting new setting.');
+
+        const insertQuery = `
+          INSERT INTO shop_sync_settings (shop_id, sync_type, selected_categories, selected_product_ids, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `;
+        console.log('Running insert query:', insertQuery);
+
+        db.run(
+          insertQuery,
+          [
+            shopId,
+            syncType,
+            selectedCategories || null,
+            selectedProductIds || null,
+            currentTime,
+            currentTime,
+          ],
+          function (insertErr) {
+            if (insertErr) {
+              console.error('Error inserting shop sync setting:', insertErr);
+              return reject(new Error(`Error inserting shop sync setting: ${insertErr.message}`));
+            }
+            console.log('Inserted new shop sync setting successfully.');
+            resolve({ message: 'Added new shop sync setting', shopId });
+          }
+        );
+      }
+    });
+  });
+};
+
+
+function getShopSyncSetting( shopId) {
+  return new Promise((resolve, reject) => {
+    // Query to retrieve the sync setting for a given shop_id
+    const query = `SELECT * FROM shop_sync_settings WHERE shop_id = ?`;
+
+    db.get(query, [shopId], (err, row) => {
+      if (err) {
+        return reject(new Error(`Error retrieving shop sync setting: ${err.message}`));
+      }
+
+      if (!row) {
+        // No setting found for the given shop_id
+        return resolve({ message: 'No sync setting found for the given shop_id', shopId });
+      }
+
+      // Return the retrieved sync setting
+      resolve(row);
+    });
+  });
+}
+
+const getCategories = () => {
+  return new Promise((resolve, reject) => {
+    const query = `SELECT DISTINCT category FROM products`;
+    
+    db.all(query, [], (err, rows) => {
+      if (err) {
+        reject('Failed to fetch categories');
+      } else {
+        resolve(rows.map(row => row.category));
+      }
+    });
+  });
+};
 // Export the db object and functions
 module.exports = {
   db,
@@ -487,6 +890,16 @@ module.exports = {
   SaveUserData,
   updateOrderCancellationStatus,
   addOrder,
+  saveProductToDB,
+  getAllProductsFromDB,
+  countProducts,
+  updateImportType,
+  getImportType,
+  upsertShopSyncSetting,
+  getShopSyncSetting,
+  getCategories,
+  getProductsByCategoryFromDB,
   updatePriceAdjustment,
-  getPriceAdjustmentByShopName
+getPriceAdjustmentByShopName,
+getProductsByProductIDsFromDB
 };
