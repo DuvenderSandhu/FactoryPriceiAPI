@@ -19,6 +19,7 @@ function TopBar() {
   const [disabledOptions, setDisabledOptions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [cancelSave, setCancelSave] = useState(false)
   const [priceAdjustment, setPriceAdjustment] = useState({});
   const [receivedProducts,setReceivedProducts]=useState(0)
 
@@ -125,11 +126,17 @@ const uploadFile1 = async () => {
     const result = await response.json();
 
     if (result.status==200 || result.data.status==200) {
-      alert('XML file 1 uploaded successfully');
+      notification.success({
+        message: 'File Uploaded',
+        description: `Your File Uploaded Successfully w`,
+      });
       console.log(result);  // Log the result from the server
       setLoading(false)
     } else {
-      alert('Error uploading XML file 1');
+      notification.success({
+        message: 'File Uploaded',
+        description: `Your File Uploaded Successfully `,
+      });
       console.error(result);  // Log the error from the server
       setLoading(false)
     }
@@ -190,6 +197,11 @@ const importProductToShopify = async (product) => {
   } catch (error) {
     console.error('Error importing product to Shopify:', error);
   }
+};
+const cancelProductCreation = () => {
+  setCancelSave(true);  // Set the cancel flag to true
+  setLoading(false);  // Stop the loading spinner
+  console.log("Product creation process has been canceled.");
 };
 
 function convertToShopifyProduct(data) {
@@ -276,18 +288,36 @@ function convertToShopifyProduct(data) {
 }
 
 
-async function handleDBProducts(){
-  setLoading(true)
-    try {
-      let res= await axios.get('/api/create-products')
-      let data= await res.json()
-      console.log(data)
-      setLoading(false)
-  } catch (error) {
-      console.log(error)
-      setLoading(false)
+const handleDBProducts = async () => {
+  setLoading(true);  // Set loading state to true to show the spinner
+  setCancelSave(false);  // Reset the cancel flag at the start of the operation
+
+  try {
+    // Early exit if the operation is cancelled before the request
+    if (cancelSave) {
+      console.log("Operation cancelled before making the request.");
+      return;
     }
-}
+
+    // Make the HTTP GET request to create products
+    let res = await axios.get('/api/create-products');
+
+    // Early exit if the operation is cancelled after the request
+    if (cancelSave) {
+      console.log("Operation cancelled after making the request.");
+      return;
+    }
+
+    let data = await res.data;  // Use `res.data` directly in axios
+    console.log(data);  // Process the data (e.g., show it on the UI)
+
+  } catch (error) {
+    console.error("Error:", error);  // Handle any errors
+  } finally {
+    setLoading(false);  // Reset the loading state
+  }
+};
+
 // Handler function for importing multiple products
 const handleProductImport = async () => {
   setLoading(true);
@@ -771,24 +801,42 @@ const handleMergeAndMap = async () => {
     >Save Product File</Button>
   </Tooltip>
 
-  <Tooltip title="Create Products from File">
+  <div>
+    <Tooltip title="Create Products from File">
+      <Button
+        type="primary"
+        onClick={handleDBProducts}  // Trigger the handleDBProducts function
+        loading={loading}  // Show loading spinner while loading is true
+        icon={<AppstoreAddOutlined />}
+        size="large"
+        style={{
+          borderRadius: '8px',
+          background: 'transparent',
+          border: '2px solid #52c41a',
+          color: '#52c41a',
+          boxShadow: 'none',
+          transition: 'all 0.3s ease',
+        }}
+        iconStyle={{ fontSize: '24px' }}
+      >
+        Create Product from XML
+      </Button>
+    </Tooltip>
+
     <Button
-      type="primary"
-      onClick={handleDBProducts}
-      loading={loading}
-      icon={<AppstoreAddOutlined />}
-      size="large"
+      type="default"
+      onClick={cancelProductCreation}  // Trigger cancel function
+      disabled={!loading}  // Disable the button if loading is false
       style={{
+        marginTop: '10px',
         borderRadius: '8px',
-        background: 'transparent',
-        border: '2px solid #52c41a',
-        color: '#52c41a',
-        boxShadow: 'none',
-        transition: 'all 0.3s ease',
+        border: '2px solid #ff4d4f',
+        color: '#ff4d4f',
       }}
-      iconStyle={{ fontSize: '24px' }}
-    >Create Product from XML</Button>
-  </Tooltip>
+    >
+      Cancel
+    </Button>
+  </div>
 </Space>
 
     </Col>

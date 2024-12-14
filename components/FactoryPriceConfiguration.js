@@ -5,14 +5,12 @@ import {
   Select,
   Input,
   Spin,
-  Table,
-  Checkbox,
-  notification,
   Modal,
+  Table,
+  notification,
   Row,
   Col,
-  Badge,
-  Divider, // Added Divider for layout
+  Divider,
 } from "antd";
 import { CheckCircleOutlined, CloseCircleOutlined } from "@ant-design/icons";
 import axios from "axios";
@@ -25,17 +23,17 @@ const SyncSettings = () => {
   const [categories, setCategories] = useState([]);
   const [selectedCategories, setSelectedCategories] = useState([]);
   const [products, setProducts] = useState([]);
-  const [selectedProducts, setSelectedProducts] = useState(new Set());
+  const [selectedProducts, setSelectedProducts] = useState(new Set()); // Store selected product IDs
   const [productDetails, setProductDetails] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0 }); // Custom pagination: 20 products per page
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0 });
   const [filters, setFilters] = useState({ search: "" });
   const [savedSettings, setSavedSettings] = useState({
     all: false,
     categories: false,
     product_ids: false,
   });
-  const [selectedSetting, setSelectedSetting] = useState(null); // Track selected setting
+  const [selectedSetting, setSelectedSetting] = useState(null);
 
   useEffect(() => {
     fetchInitialSettings();
@@ -47,12 +45,20 @@ const SyncSettings = () => {
   const fetchInitialSettings = async () => {
     try {
       const response = await axios.get("/api/get-sync-settings");
-      const { syncType, selectedCategories, selectedProductIds } =
-        response.data || {};
-      setSyncMode(syncType || "none");
-      if (syncType === "categories") setSelectedCategories(selectedCategories.split(","));
-      if (syncType === "product_ids")
-        setSelectedProducts(new Set(selectedProductIds.split(",")));
+      const { sync_type, selected_categories, selected_product_ids } = response.data || {};
+      setSyncMode(sync_type || "none");
+      setSelectedSetting(sync_type);
+
+      // If sync_type is "categories", set selected categories
+      if (sync_type === "categories" && selected_categories) {
+        setSelectedCategories(selected_categories.split(","));
+      }
+
+      // If sync_type is "product_ids", set selected products
+      if (sync_type === "product_ids" && selected_product_ids) {
+        const selectedProductIds = selected_product_ids.split(",").map(id => parseInt(id, 10)); // Convert to numbers
+        setSelectedProducts(new Set(selectedProductIds)); // Pre-select products by IDs
+      }
     } catch (error) {
       console.error("Failed to fetch sync settings:", error);
     }
@@ -71,7 +77,7 @@ const SyncSettings = () => {
     }
   };
 
-  // Fetch products
+  // Fetch products with pagination and search
   const fetchProductsAndCategories = async () => {
     setLoading(true);
     try {
@@ -79,7 +85,7 @@ const SyncSettings = () => {
         params: { page: pagination.page, limit: pagination.limit, search: filters.search },
       });
       setProducts(response.data.data || []);
-      setPagination(response.data.pagination || { page: 1, limit: 20, total: 0 }); // Use 20 items per page
+      setPagination(response.data.pagination || { page: 1, limit: 20, total: 0 });
     } catch (error) {
       console.error("Failed to fetch products:", error);
     } finally {
@@ -96,9 +102,6 @@ const SyncSettings = () => {
     });
   };
 
-  // Handle product details
-  const handleProductDetails = (product) => setProductDetails(product);
-
   // Save sync settings
   const saveSettings = async (mode) => {
     const payload = {
@@ -106,12 +109,11 @@ const SyncSettings = () => {
       selectedCategories: selectedCategories.join(","),
       selectedProductIds: Array.from(selectedProducts).join(","),
     };
-    
-    // Before the API call, set this setting as active
-    setSelectedSetting(mode);
+
+    setSelectedSetting(mode);  // Update active setting
 
     try {
-      await axios.post("/api/update-sync-settings", payload);
+      await axios.get("/api/update-sync-settings", { params: payload });
       notification.success({ message: "Sync settings saved successfully!" });
       setSavedSettings((prev) => ({ ...prev, [mode]: true }));
     } catch (error) {
@@ -122,7 +124,6 @@ const SyncSettings = () => {
 
   // Handle page change for products
   const handlePageChange = (page) => {
-      console.log("page",page)
     setPagination((prev) => ({ ...prev, page }));
     fetchProductsAndCategories();
   };
@@ -132,7 +133,7 @@ const SyncSettings = () => {
     setLoading(true);
     try {
       const payload = { syncType: syncMode, selectedCategories, selectedProductIds: Array.from(selectedProducts) };
-      const response = await axios.get("/api/sync-shopify", payload);
+      const response = await axios.get("/api/sync-shopify", { params: payload });
       notification.success({ message: "Sync Successful", description: response.data.message });
     } catch (error) {
       console.error("Failed to sync with Shopify:", error);
@@ -142,9 +143,33 @@ const SyncSettings = () => {
     }
   };
 
+  // Handle the product details view
+  const handleProductDetails = (record) => {
+    setProductDetails(record);
+    Modal.info({
+      title: 'Product Details',
+      content: <ProductDetails product={record} />,
+      width: 800,
+    });
+  };
+
+  // Synchronize selection with the table when the products are updated
+  useEffect(() => {
+    if (products.length > 0) {
+      const preSelectedProductIds = Array.from(selectedProducts);
+      const updatedSelections = preSelectedProductIds.filter(id =>
+        products.some(product => product.id === id)
+      );
+
+      // Only update selectedProducts if the selection has changed
+      if (updatedSelections.length !== selectedProducts.size) {
+        setSelectedProducts(new Set(updatedSelections));
+      }
+    }
+  }, [products, selectedProducts]); // Sync when products or selectedProducts change
+
   return (
     <div className="sync-settings-container">
-      {/* Header */}
       <h1 className="sync-header">Factory Price API</h1>
 
       <Row justify="center">
@@ -177,38 +202,15 @@ const SyncSettings = () => {
               onClick={() => saveSettings("all")}
               disabled={savedSettings.all}
               className="save-btn"
-              style={{
-                backgroundColor: savedSettings.all ? "#8BC34A" : "#4CAF50",
-                borderColor: savedSettings.all ? "#8BC34A" : "#4CAF50",
-                color: savedSettings.all ? "#fff" : "#fff",
-                position: "relative"
-              }}
             >
-              {savedSettings.all ? (
-                <CheckCircleOutlined />
-              ) : (
-                <CloseCircleOutlined />
-              )}
+              {savedSettings.all ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
               {savedSettings.all ? "Active" : "Save Settings"}
-              {/* Add Badge inside selected box */}
-              {savedSettings.all && (
-                <Badge
-                  count="Selected"
-                  style={{
-                    position: "absolute",
-                    top: "-5px",
-                    right: "-5px",
-                    backgroundColor: "#8BC34A",
-                    fontSize: "12px",
-                  }}
-                />
-              )}
             </Button>
           </Row>
         </Card>
       </div>
 
-      <Divider  variant="dashed" style={{  borderColor: '#7cb305' }} dashed >Or</Divider>
+      <Divider variant="dashed" style={{ borderColor: '#7cb305' }} dashed >Or</Divider>
 
       {/* Categories Section */}
       <div className="mb-6">
@@ -240,38 +242,15 @@ const SyncSettings = () => {
               onClick={() => saveSettings("categories")}
               disabled={savedSettings.categories}
               className="save-btn"
-              style={{
-                backgroundColor: savedSettings.categories ? "#8BC34A" : "#4CAF50",
-                borderColor: savedSettings.categories ? "#8BC34A" : "#4CAF50",
-                color: savedSettings.categories ? "#fff" : "#fff",
-                position: "relative"
-              }}
             >
-              {savedSettings.categories ? (
-                <CheckCircleOutlined />
-              ) : (
-                <CloseCircleOutlined />
-              )}
+              {savedSettings.categories ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
               {savedSettings.categories ? "Active" : "Save Settings"}
-              {/* Add Badge inside selected box */}
-              {savedSettings.categories && (
-                <Badge
-                  count="Selected"
-                  style={{
-                    position: "absolute",
-                    top: "-5px",
-                    right: "-5px",
-                    backgroundColor: "#8BC34A",
-                    fontSize: "12px",
-                  }}
-                />
-              )}
             </Button>
           </Row>
         </Card>
       </div>
 
-      <Divider  variant="dashed" style={{  borderColor: '#7cb305' }} dashed >Or</Divider>
+      <Divider variant="dashed" style={{ borderColor: '#7cb305' }} dashed >Or</Divider>
 
       {/* Custom Product Selection Section */}
       <div className="mb-6">
@@ -288,95 +267,58 @@ const SyncSettings = () => {
               <Input
                 placeholder="Search products"
                 value={filters.search}
-                onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-                onPressEnter={fetchProductsAndCategories}
-                className="search-input"
+                onChange={(e) => setFilters({ search: e.target.value })}
               />
             </Col>
-            <Col xs={6} className="text-right">
-              <Button
-                type="primary"
-                onClick={() => saveSettings("product_ids")}
-                disabled={savedSettings.product_ids}
-                className="save-btn"
-                style={{
-                  backgroundColor: savedSettings.product_ids ? "#8BC34A" : "#4CAF50",
-                  borderColor: savedSettings.product_ids ? "#8BC34A" : "#4CAF50",
-                  color: savedSettings.product_ids ? "#fff" : "#fff",
-                  position: "relative"
-                }}
-              >
-                {savedSettings.product_ids ? (
-                  <CheckCircleOutlined />
-                ) : (
-                  <CloseCircleOutlined />
-                )}
-                {savedSettings.product_ids ? "Active" : "Save Settings"}
-                {/* Add Badge inside selected box */}
-                {savedSettings.product_ids && (
-                  <Badge
-                    count="Selected"
-                    style={{
-                      position: "absolute",
-                      top: "-5px",
-                      right: "-5px",
-                      backgroundColor: "#8BC34A",
-                      fontSize: "12px",
-                    }}
-                  />
-                )}
+            <Col xs={6}>
+              <Button onClick={() => fetchProductsAndCategories()} type="primary">
+                Search
               </Button>
             </Col>
           </Row>
 
-          <Spin spinning={loading}>
-            <Table
-              dataSource={products}
-              pagination={{
-                current: pagination.page,
-                pageSize: pagination.limit,
-                total: pagination.total,
-                onChange: handlePageChange,
-              }}
-              rowKey="id"
-              columns={[
-                {
-                  title: "Select",
-                  render: (_, record) => (
-                    <Checkbox
-                      checked={selectedProducts.has(record.id)}
-                      onChange={() => handleSelectProduct(record.id)}
-                      className="checkbox-selection"
-                    />
-                  ),
-                },
-                { title: "Image", dataIndex: "photo_link_small", render: (src) => <img src={src} alt="product" style={{ width: 50 }} /> },
-                { title: "Product Name", dataIndex: "model" },
-                { title: "Category", dataIndex: "category" },
-                { title: "Price", dataIndex: "suggested_price_netto_pln" },
-                { title: "Actions", render: (_, record) => <Button onClick={() => handleProductDetails(record)}>Details</Button> },
-              ]}
-            />
-          </Spin>
+          <Table
+            rowSelection={{
+              selectedRowKeys: Array.from(selectedProducts),
+              onChange: (selectedKeys) => setSelectedProducts(new Set(selectedKeys)),
+            }}
+            rowKey="id"
+            columns={[
+              {
+                title: "Image",
+                dataIndex: "photo_link_small",
+                render: (src) => <img src={src} alt="product" style={{ width: 50 }} />,
+              },
+              { title: "Product Name", dataIndex: "model" },
+              { title: "Category", dataIndex: "category" },
+              { title: "Price", dataIndex: "suggested_price_netto_pln" },
+              {
+                title: "Actions",
+                render: (_, record) => (
+                  <Button onClick={() => handleProductDetails(record)}>Details</Button>
+                ),
+              },
+            ]}
+            dataSource={products}
+            pagination={pagination}
+            onChange={handlePageChange}
+            loading={loading}
+            style={{ marginTop: "20px" }}
+          />
 
-          <div className="product-count">
-            <Badge count={selectedProducts.size} style={{ backgroundColor: "#8BC34A" }} />
-            <span>Selected Products</span>
-          </div>
+          <Row justify="end" className="mt-2">
+            <Button
+              type="primary"
+              onClick={() => saveSettings("product_ids")}
+              disabled={savedSettings.product_ids}
+              className="save-btn"
+            >
+              {savedSettings.product_ids ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
+              {savedSettings.product_ids ? "Active" : "Save Settings"}
+            </Button>
+          </Row>
         </Card>
       </div>
-
-      {/* Product Details Modal */}
-      {productDetails && (
-        <Modal
-          visible={!!productDetails}
-          onCancel={() => setProductDetails(null)}
-          title="Product Details"
-          footer={null}
-        >
-          <ProductDetails product={productDetails} />
-        </Modal>
-      )}
     </div>
   );
 };

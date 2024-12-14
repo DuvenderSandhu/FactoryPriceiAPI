@@ -104,11 +104,14 @@ app.prepare().then(() => {
 
   server.use(koaBody({
     multipart: true,  // Enable multipart parsing
+    rawBody: false,   // Disable raw-body parsing
     formidable: {
-      uploadDir: path.join(__dirname, 'uploads'),  // Folder to store uploaded files
-      keepExtensions: true,  // Keep file extensions
-      maxFileSize: 100 * 1024 * 1024,  // Set file size limit (e.g., 100 MB)
+      uploadDir: path.join(__dirname, 'uploads'),
+      keepExtensions: true,
+      maxFileSize: 100 * 1024 * 1024,
     },
+    json: true,
+  urlencoded: true, 
   }));
   router.post('/api/upload', async (ctx) => {
     const { files } = ctx.request;
@@ -322,6 +325,29 @@ router.get('/getOrder', async (ctx) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 });
+
+
+router.get('/api/update-price-adjustment', async (ctx) => {
+  const { priceAdjustmentType, priceAdjustmentAmount } = ctx.query;  // Get query parameters
+
+  // Validate input
+  if (!priceAdjustmentType || !priceAdjustmentAmount) {
+    ctx.status = 400;
+    ctx.body = { error: 'priceAdjustmentType and priceAdjustmentAmount are required' };
+    return;
+  }
+
+  try {
+    const result = await db.updatePriceAdjustment(ctx.session.shop, priceAdjustmentType, priceAdjustmentAmount);
+    ctx.status = 200;
+    ctx.body = { message: result };
+  } catch (err) {
+    ctx.status = 500;
+    ctx.body = { error: err.message || err };
+  }
+});
+
+
 
 // Cancel Order 
 router.post('/deleteOrder', async (ctx) => {
@@ -623,46 +649,67 @@ async function axiosWithRetry(config, retries = 1, retryDelay = 1000) {
 
 
 
-router.post('/api/update-sync-settings', async (ctx) => {
-  const shopName= ctx.session.shop
-  const {  syncType ,selectedCategories,selectedProductIds} = ctx.request.body;
-  selectedCategories
-  console.log(syncType,selectedCategories,shopName,selectedProductIds)
-  if (!shopName || !syncType ) {
-    ctx.status = 400;
-    ctx.body = { message: ' importType, syncType, selectedCategories, selectedProductIds is required or invalid shop' };
+router.get('/api/update-sync-settings', async (ctx) => {
+  const shopName = ctx.session.shop; // Get the shop name from the session
+  const { syncType, selectedCategories, selectedProductIds } = ctx.query; // Retrieve query parameters
+
+  // Validate the input data
+  if (!shopName || !syncType) {
+    ctx.status = 400; // Bad Request
+    ctx.body = { message: 'syncType, selectedCategories, and selectedProductIds are required' };
     return;
   }
-  const shopID = await new Promise((resolve, reject) => {
-    db.getShopIDByShopName(shopName, (err, shopID) => {
-      if (err) {
-        console.error('Error fetching shopID:', err);
-        reject(new Error('Error fetching shop ID'));
-      }
-      resolve(shopID);
+
+  // Fetch the shop ID from the database
+  let shopID;
+  try {
+    shopID = await new Promise((resolve, reject) => {
+      db.getShopIDByShopName(shopName, (err, shopID) => {
+        if (err) {
+          console.error('Error fetching shopID:', err);
+          reject(new Error('Error fetching shop ID'));
+        }
+        resolve(shopID);
+      });
     });
-  });
+  } catch (error) {
+    ctx.status = 500; // Internal Server Error
+    ctx.body = { message: 'Error fetching shop ID', error: error.message };
+    return;
+  }
 
   if (!shopID) {
-    ctx.status = 404;
+    ctx.status = 404; // Not Found
     ctx.body = { message: 'Shop ID not found for the given shop name' };
     return;
   }
-  db.upsertShopSyncSetting(shopID, syncType, selectedCategories, selectedProductIds, (err, changes) => {
-    if (err) {
-      console.error('Error updating importType:', err);
-      ctx.status = 500; // Internal Server Error
-      ctx.body = { message: 'Error updating importType', error: err.message };
-    } else if (changes === 0) {
+
+  // Update the sync settings in the database
+  try {
+    const changes = await new Promise((resolve, reject) => {
+      db.upsertShopSyncSetting(shopID, syncType, selectedCategories, selectedProductIds, (err, changes) => {
+        if (err) {
+          reject(new Error('Error updating sync settings: ' + err.message));
+        }
+        resolve(changes);
+      });
+    });
+
+    if (changes === 0) {
       ctx.status = 404; // Not Found
       ctx.body = { message: 'Shop not found or no changes made.' };
     } else {
       ctx.status = 200; // OK
-      ctx.body = { message: 'ImportType updated successfully' };
+      ctx.body = { message: 'Sync settings updated successfully' };
     }
-  });
-  
+  } catch (error) {
+    console.error('Error during sync settings update:', error);
+    ctx.status = 500; // Internal Server Error
+    ctx.body = { message: 'Error updating sync settings', error: error.message };
+  }
 });
+
+
 
 // Route to get the importType
 router.get('/api/get-sync-settings', async (ctx) => {
@@ -972,48 +1019,70 @@ router.get('/api/getShopAPIData', async (ctx) => {
     ctx.body = { message: 'An unexpected error occurred', error: error.message };
   }
 });
+router.get('/api/cancel', async (ctx) => {
+  // Set the cancel flag to true to cancel ongoing operations
+  ctx.cancel = true;
+  console.log('Operation has been cancelled.');
+  ctx.body = { message: 'Process cancelled.' };
+});
 
 router.get('/api/create-products', async (ctx) => {
+  // Initialize cancel flag
+  ctx.cancel = false;
+
+  // Step 1: Parse XML File
   const parseXML = async () => {
-    console.log("Welcome Here too");
+    console.log("Starting XML Parsing...");
     try {
       async function readFile() {
-        const text = await fs.readFile('uploads/'+ctx.session.shop+".xml", 'utf-8'); // Reads the file content as a string
-        return text; // Output the content of the XML file
+        // Check if the process is cancelled before reading the file
+        if (ctx.cancel) {
+          console.log("Process cancelled before reading file.");
+          return;
+        }
+
+        const text = await fs.readFile('uploads/' + ctx.session.shop + ".xml", 'utf-8');
+        return text;
       }
-      
+
       let text = await readFile();
+      if (ctx.cancel) {
+        console.log("Process cancelled after reading file.");
+        return;
+      }
+
       const data = xml2js(text, { compact: true });
       return data.offer.products.product;
+
     } catch (error) {
       throw new Error('Error parsing XML file');
     }
   };
 
+  // Step 2: Merge XML Data and Save to Database
   const mergeXMLData = async (obj1) => {
-    let mergeData = []; // Array to store the merged products
-    let unmatchedEans = []; // Array to store unmatched EAN codes
+    let mergeData = [];
+    let unmatchedEans = [];
 
-    // Iterate over products in obj1
+    // Iterate over products and merge data
     await Promise.all(obj1.map(async (product) => {
-      if (!product.variants || !product.variants.variant) {
-        console.error(`Invalid product structure: Missing variants in product`, product);
-        return; // Skip this product if it has no variants
+      // Check if the operation is canceled before processing each product
+      if (ctx.cancel) {
+        console.log("Process cancelled before processing product.");
+        return;
       }
 
-      let mergedVariants = []; // Array to store the merged variants
+      let mergedVariants = [];
       let picturesArray = [];
 
       try {
-        // Handle product pictures
         if (product.pictures && product.pictures.picture) {
           const pictures = Array.isArray(product.pictures.picture)
             ? product.pictures.picture
             : [product.pictures.picture];
-          picturesArray = pictures.map(p => p._text).filter(url => url); // Convert to array of URLs
+          picturesArray = pictures.map(p => p._text).filter(url => url);
         }
 
-        // Handle product variants
         const variants = Array.isArray(product.variants.variant)
           ? product.variants.variant
           : [product.variants.variant];
@@ -1021,7 +1090,7 @@ router.get('/api/create-products', async (ctx) => {
           const eanCode = variant.code || variant._attributes?.code;
           if (!eanCode) {
             console.error(`Variant missing EAN code: ${JSON.stringify(variant)}`);
-            unmatchedEans.push(variant); // Store unmatched variants for debugging
+            unmatchedEans.push(variant);
             return;
           }
           mergedVariants.push({
@@ -1030,27 +1099,31 @@ router.get('/api/create-products', async (ctx) => {
           });
         });
 
-        // Create merged product object
         const mergedProduct = {
-          ...product, // Copy all properties of the product
-          pictures: picturesArray, // Add processed pictures
-          variants: mergedVariants // Add processed variants
+          ...product,
+          pictures: picturesArray,
+          variants: mergedVariants
         };
 
-        // Save the merged product to the database
+        // Check if the process is cancelled before saving to the DB
+        if (ctx.cancel) {
+          console.log("Process cancelled before saving to DB.");
+          return;
+        }
+
+        // Save to the database
         const savedProduct = await db.saveProductToDB(mergedProduct);
-        console.log("SavedProduct:", savedProduct);
+        console.log("Saved Product:", savedProduct);
 
         mergeData.push(mergedProduct);
+
       } catch (error) {
         console.error('Error processing product:', error);
       }
     }));
 
-    // Optional cleanup: filter out products with no variants
     mergeData = mergeData.filter(product => product.variants.length > 0);
 
-    // Log unmatched EANs for debugging purposes
     if (unmatchedEans.length > 0) {
       console.log("Unmatched EANs:", unmatchedEans);
     }
@@ -1058,11 +1131,32 @@ router.get('/api/create-products', async (ctx) => {
     return { mergeData, unmatchedEans };
   };
 
-  console.log("Welcome to Code");
-  let data = await parseXML();
-  let { mergeData } = await mergeXMLData(data);
-  ctx.body = { mergeData };
+  // Step 3: Execute the Process
+  try {
+    let data = await parseXML();
+    if (ctx.cancel) {
+      console.log("Operation cancelled during XML parsing.");
+      ctx.body = { message: "Process cancelled during XML parsing." };
+      return;
+    }
+
+    let { mergeData } = await mergeXMLData(data);
+    if (ctx.cancel) {
+      console.log("Operation cancelled during data merging.");
+      ctx.body = { message: "Process cancelled during data merging." };
+      return;
+    }
+
+    // Return merged data
+    ctx.body = { mergeData };
+
+  } catch (error) {
+    console.error("Error:", error);
+    ctx.status = 500;
+    ctx.body = { error: 'Internal Server Error' };
+  }
 });
+
 
 router.get('/api/get-products', async (ctx) => {
   try {
@@ -1658,24 +1752,8 @@ router.get('/api/sync-shopify', async (ctx) => {
 
   
   
-router.post('/api/update-price-adjustment', async (ctx) => {
-  const {  priceAdjustmentType, priceAdjustmentAmount } = ctx.request.body;
-
-  // Validate input
-  if (!priceAdjustmentType || !priceAdjustmentAmount) {
-    ctx.status = 400;
-    ctx.body = { error: 'shopName, priceAdjustmentType, and priceAdjustmentAmount are required' };
-    return;
-  }
-
-  try {
-    const result = await db.updatePriceAdjustment(ctx.session.shop, priceAdjustmentType, priceAdjustmentAmount);
-    ctx.status = 200;
-    ctx.body = { message: result };
-  } catch (err) {
-    ctx.status = 500;
-    ctx.body = { error: err };
-  }
+router.post('/api/new', async (ctx) => {
+  console.log("Hi")
 });
   
   

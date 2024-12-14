@@ -107,12 +107,11 @@ const ApiSettingsForm = ({ onApiSubmit, loading }) => {
       priceAdjustment.priceAdjustmentType= priceAdjustmentType
       priceAdjustment.priceAdjustmentAmount= priceAdjustmentAmount
 
-      const response = await fetch('/api/update-price-adjustment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ priceAdjustmentType, priceAdjustmentAmount }),
+      const response = await fetch(`/api/update-price-adjustment?priceAdjustmentType=${encodeURIComponent(priceAdjustmentType)}&priceAdjustmentAmount=${encodeURIComponent(priceAdjustmentAmount)}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' }
       });
-
+      
       const result = await response.json();
 
       if (response.ok) {

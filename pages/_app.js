@@ -2,6 +2,7 @@ import App from 'next/app';
 import Head from 'next/head';
 import { AppProvider } from '@shopify/polaris';
 import { Provider } from '@shopify/app-bridge-react';
+import './input.css'
 // import '@shopify/polaris/styles.css';
 import translations from '@shopify/polaris/locales/en.json';
 import Cookies from 'js-cookie';
@@ -40,7 +41,6 @@ useEffect(()=>{
       <Head>
         <title>Shopify App</title>
         <meta charSet="utf-8" />
-        <script src="https://cdn.tailwindcss.com"></script>
       </Head>
       <Provider config={config}>
         <AppProvider i18n={translations}>

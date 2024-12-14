@@ -84,7 +84,8 @@ db.run(`CREATE TABLE IF NOT EXISTS products (
   description TEXT,
   sizechart TEXT,
   variants TEXT,
-  pictures  TEXT
+  pictures  TEXT,
+  title TEXT DEFAULT "title"
 );
 `);
 
@@ -293,7 +294,6 @@ const saveProductToDB = async (productData) => {
       variants: variants,
       pictures: pictures
     });
-
     // Insert the product into the database
     const result = await new Promise((resolve, reject) => {
       db.run(`
@@ -301,9 +301,9 @@ const saveProductToDB = async (productData) => {
           productID, ModelID, model, color, gender, category, producer,
           suggested_price_netto_pln, wholesale_price_netto_pln, vat,
           photo_link_small, photo_link_large, material_composition, washing_recipe,
-          description, sizechart, variants, pictures
+          description, sizechart, variants, pictures,title
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,?,?)
       `, [
         productData.productID?._text || "Some",
         productData.ModelID?._text || "Some",
@@ -322,7 +322,8 @@ const saveProductToDB = async (productData) => {
         productData.description?._cdata || "Some",
         productData.sizechart?._text || "Some",
         variants ||"some",  // Save the variants as a JSON string
-        pictures || "Some"  // Save the pictures as a JSON string
+        pictures || "Some",  // Save the pictures as a JSON string
+        productData.display_name._cdata ||productData.display_name._text ||productData.display_name || '',
       ], function (err) {
         if (err) {
           console.error("Error saving Product to DB:", err);
