@@ -6,6 +6,12 @@ const { Option } = Select;
 const ApiSettingsForm = ({ onApiSubmit, loading }) => {
   let [priceAdjustment, setPriceAdjustment] = useState({priceAdjustmentType:"",priceAdjustmentAmount:""});
   let [turnOff, setTurnOff] = useState(0);
+  // let [loading, setLoading] = useState(false);
+  let [apiData, setApiData] = useState({
+    apikey:"",
+    apiSecret:"",
+    apiurl:""
+  });
   
   const [formApi] = Form.useForm(); // Form for API settings
   const [formPriceAdjustment] = Form.useForm(); // Form for Price Adjustment settings
@@ -48,6 +54,27 @@ const ApiSettingsForm = ({ onApiSubmit, loading }) => {
     };
     fetchPriceAdjustment();
   }, [turnOff]);
+
+useEffect(() => {
+  const fetchApiData = async () => {
+    try {
+      const response = await fetch('/api/getShopAPIData'); // Replace with your actual API
+      const result = await response.json();
+      setApiData(result.data[0])
+      if (response.ok && result?.data) {
+        console.log("Result",result.data[0])
+        setApiData(result.data[0]);
+      } else {
+        notification.error({ message: 'Error', description: 'Failed to fetch API data' });
+      }
+      console.log("API Data",apiData)
+    } catch (error) {
+      notification.error({ message: 'Error', description: 'Failed to fetch API data' });
+    }
+  };
+
+  fetchApiData();
+}, []);
 
   // Function to handle API settings submission
   const handleApiSubmit = async (values) => {
@@ -149,21 +176,21 @@ const ApiSettingsForm = ({ onApiSubmit, loading }) => {
           label="API Key"
           name="apiKey"
           rules={[{ required: true, message: 'API Key is required' }]}>
-          <Input placeholder="Enter API Key" />
+          <Input  placeholder={apiData.apikey} />
         </Form.Item>
 
         <Form.Item
           label="API Secret"
           name="apiSecret"
           rules={[{ required: true, message: 'API Secret is required' }]}>
-          <Input placeholder="Enter API Secret" />
+          <Input  placeholder={apiData.apiSecret}/>
         </Form.Item>
 
         <Form.Item
           label="API URL"
           name="apiUrl"
           rules={[{ required: true, message: 'API URL is required' }]}>
-          <Input placeholder="Enter API URL" />
+          <Input  placeholder={apiData.apiurl} />
         </Form.Item>
 
         <Button

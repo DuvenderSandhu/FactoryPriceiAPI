@@ -497,30 +497,44 @@ const getAllShopDetails = (callback) => {
 };
 
 
-async function SaveShop(shop,accessToken){
+async function SaveShop(shop, accessToken) {
   try {
-    // Check if the shop already exists in the shop_tokens table
-    db.run(`
-      INSERT OR IGNORE INTO shop (shopName, accessToken)
-      VALUES (?, ?)
-    `, [shop, accessToken], function(err) {
-      if (err) {
-        console.error('Error saving shop token:', err);
-        return 0
-      } else {
+    // First, try to insert the shop if it doesn't exist
+    db.run(
+      `INSERT OR IGNORE INTO shop (shopName, accessToken) VALUES (?, ?)`,
+      [shop, accessToken],
+      function (err) {
+        if (err) {
+          console.error('Error saving shop token:', err);
+          return 0;
+        }
+
         if (this.changes === 0) {
-          console.log(`Shop '${shop}' already exists in the database.`);
-          return 1
+          // Shop already exists, so let's update the accessToken
+          db.run(
+            `UPDATE shop SET accessToken = ? WHERE shopName = ?`,
+            [accessToken, shop],
+            function (err) {
+              if (err) {
+                console.error('Error updating shop token:', err);
+                return 0;
+              } else {
+                console.log(`Updated access token for shop '${shop}'.`);
+                return 1;
+              }
+            }
+          );
         } else {
+          // New shop has been inserted
           console.log(`Shop '${shop}' and its accessToken saved to the database.`);
-          return 1
+          return 1;
         }
       }
-    });}
-    catch(e){
-      console.log(e)
-      return 0
-    }
+    );
+  } catch (e) {
+    console.log(e);
+    return 0;
+  }
 }
 
 async function SaveUserData(shopID, apiKey, apiSecret, apiUrl) {
@@ -866,6 +880,21 @@ function getShopSyncSetting( shopId) {
   });
 }
 
+async function getAllShops() {
+  return new Promise((resolve, reject) => {
+    const query = 'SELECT shopName, accessToken FROM shop';  // SQL query to fetch shopName and accessToken
+
+    db.all(query, [], (err, rows) => {
+      if (err) {
+        reject(err);  // Reject the promise on error
+      } else {
+        console.log("Shops",rows)
+        resolve(rows);  // Resolve the promise with the results (rows of data)
+      }
+    });
+  });
+}
+
 const getCategories = () => {
   return new Promise((resolve, reject) => {
     const query = `SELECT DISTINCT category FROM products`;
@@ -902,5 +931,6 @@ module.exports = {
   getProductsByCategoryFromDB,
   updatePriceAdjustment,
 getPriceAdjustmentByShopName,
-getProductsByProductIDsFromDB
+getProductsByProductIDsFromDB,
+getAllShops
 };

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Button, Checkbox, Modal, notification, Form } from 'antd';
-
+import axios from 'axios';
 const Endpoints = () => {
   const [apiData, setApiData] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -192,8 +192,13 @@ const Endpoints = () => {
             >
               Sync Now
             </Button>
+            
           </Form.Item>
         </Form>
+        <Button type='primary' onClick={async ()=>{
+          let data= await axios.get('/api/create/products')
+          console.log("data",data)
+        }}>Click Me To Sync</Button>
         {/* Display last sync time */}
         {lastSync && (
           <div className="mt-4">

@@ -6,7 +6,7 @@ const {koaBody}  = require('koa-body');
 const Koa = require('koa');
 const next = require('next');
 const fs = require('fs').promises;
-
+const cron = require('node-cron');
 const { XMLParser  } = require('fast-xml-parser')
 const axios= require('axios')
 const { default: createShopifyAuth } = require('@shopify/koa-shopify-auth');
@@ -529,96 +529,58 @@ router.delete('/api/deleteAPI', async (ctx) => {
 
 // Add the create product route
 
-router.post('/api/createProduct', async (ctx) => {
-  const productData = ctx.request.body;
-
-
-
-  // Validate required fields
-  const { title, bodyHtml, vendor, productType, variants } = productData;
-
-  if (!title || !bodyHtml || !vendor || !productType || !variants || variants.length === 0) {
-      ctx.status = 400;
-      ctx.body = { message: 'Title, body_html, vendor, product_type, and variants are required.' };
-      return;
-  }
-
-  // Ensure valid shop information
-  const shopName = ctx.session.shop; // Get shop name from session
-  const accessToken = ctx.session.accessToken; // Get access token from session
-
-  if (!shopName || !accessToken) {
-      ctx.status = 400;
-      ctx.body = { message: 'Shop name and access token are required.' };
-      return;
-  }
-
-  // Prepare the product object for the REST API
-  const product = {
-      product: {
-          title: productData.title,
-          body_html: productData.bodyHtml,
-          vendor: productData.vendor,
-          product_type: productData.productType,
-          tags: productData.tags ? productData.tags.split(',') : [],
-          variants: productData.variants.map(variant => ({
-              option1: variant.option1, // Required
-              price: (variant.price && !isNaN(parseFloat(variant.price))) ? parseFloat(variant.price) :"",
-              sku: variant.sku || null, // Optional SKU
-              requires_shipping: variant.requiresShipping || false, // Optional shipping requirement
-              inventory_management: "shopify",
-              inventory_policy: "continue",
-              inventory_quantity:variant.inventoryQuantity || 0,
-              taxable: variant.taxable || false, // Optional taxable field
-              barcode: variant.barcode || null // Optional barcode
-          })),
-          images: productData.images.map(image => ({
-              src: image.originalSrc // Source URL for the image
-          })),
-          options: productData.options.map(option => ({
-              name: option.name,
-              values: option.values
-          }))
-      }
-  };
-
+router.get('/api/create/products', async (ctx) => {
   try {
-      const shopifyAPIUrl = `https://${shopName}/admin/api/2023-10/products.json`;
+    // Get the shop settings from the database
+    const shopName = ctx.session.shop;
+    const accessToken = ctx.session.accessToken;
+    
+    if (!shopName || !accessToken) {
+      ctx.status = 400;
+      ctx.body = { error: 'Shop URL or Access Token missing in session' };
+      return;
+    }
 
-      // Log the request being sent to Shopify for debugging
-      console.log('Sending request to Shopify API:', product);
+    const shopID = await new Promise((resolve, reject) => {
+      db.getShopIDByShopName(shopName, (err, result) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(result);
+        }
+      });
+    });
 
-      // Make the POST request to Shopify's REST API
-      const response = await axios.post(
-          shopifyAPIUrl,
-          product,
-          {
-              headers: {
-                  'X-Shopify-Access-Token': accessToken,
-                  'Content-Type': 'application/json',
-              },
-          }
-      );
+    if (!shopID) {
+      ctx.status = 404;
+      ctx.body = { error: 'Shop ID not found' };
+      return;
+    }
 
-      // Log the full response from Shopify for debugging
-      console.log('Shopify API response:', response.data);
+    // Get shop sync settings
+    const syncSettings = await db.getShopSyncSetting(shopID);
+    if (!syncSettings) {
+      ctx.status = 404;
+      ctx.body = { error: 'Sync settings not found for the shop' };
+      return;
+    }
 
-      if (response.data.product) {
-          ctx.status = 201;
-          ctx.body = {
-              message: 'Product created successfully.',
-              product: response.data.product,
-          };
-      } else {
-          ctx.status = 400;
-          ctx.body = { message: 'Failed to create product.', response: response.data };
-      }
+    const { sync_type, selected_categories, selected_product_ids } = syncSettings;
+    const selectedCategories = selected_categories ? selected_categories.split(',') : [];
+    const selectedProductIds = selected_product_ids ? selected_product_ids.split(',') : [];
+
+    // Call RunMe with the retrieved settings
+    const result = await RunMe(shopName, accessToken, sync_type, selectedCategories, selectedProductIds);
+
+    // Respond with the result of the sync
+    ctx.body = result;
   } catch (error) {
-      console.error('Error creating product:', error);
-      ctx.status = 500;
-      ctx.body = { message: 'Error creating product', error: error.message };
+    console.error('Error syncing products:', error);
+    ctx.status = 500;
+    ctx.body = { error: 'Error syncing products' };
   }
 });
+
 
 
 // Add a route for syncing products
@@ -1300,6 +1262,39 @@ const fetchFactoryPriceData = async (sku) => {
   }
 };
 
+const RunMe = async (shopUrl, accessToken, syncType, selectedCategories, selectedProductIds) => {
+  try {
+    const baseUrl = `https://${shopUrl}/admin/api/2023-10`; // Replace with your actual Shopify API base URL
+    console.log(accessToken,"Access Token")
+    const headers = {
+      'X-Shopify-Access-Token': accessToken,
+      'Content-Type': 'application/json',
+    };
+
+    // Ensure syncType is valid
+    if (!syncType || !['product_ids', 'categories'].includes(syncType)) {
+      console.error('Invalid sync type specified');
+      return;
+    }
+
+    if (syncType === 'product_ids' && selectedProductIds.length > 0) {
+      // Sync products by product IDs
+      console.log(`Syncing products by product IDs: ${selectedProductIds}`);
+      await syncProducts(selectedProductIds, baseUrl, headers, shopUrl);
+    } else if (syncType === 'categories' && selectedCategories.length > 0) {
+      // Sync products by categories
+      console.log(`Syncing products by categories: ${selectedCategories}`);
+      await syncCategories(selectedCategories, baseUrl, headers, shopUrl);
+    } else {
+      console.log('No valid product IDs or categories selected for syncing.');
+    }
+
+    console.log(`Sync process completed for shop: ${shopUrl}`);
+  } catch (error) {
+    console.error('Error in RunMe:', error.message || error);
+    throw new Error('Error during sync process');
+  }
+};
 
 // Helper function to sync Categories
 const syncCategories = async (selectedCategories, baseUrl, headers, shop) => {
@@ -1461,6 +1456,137 @@ const syncCategories = async (selectedCategories, baseUrl, headers, shop) => {
   }
 };
 
+router.get('/api/create/products', async (ctx) => {
+  try {
+    // Get the shop settings from the database
+    const shopName = ctx.session.shop;
+    const accessToken = ctx.session.accessToken;
+    
+    if (!shopName || !accessToken) {
+      ctx.status = 400;
+      ctx.body = { error: 'Shop URL or Access Token missing in session' };
+      return;
+    }
+
+    const shopID = await new Promise((resolve, reject) => {
+      db.getShopIDByShopName(shopName, (err, result) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(result);
+        }
+      });
+    });
+
+    if (!shopID) {
+      ctx.status = 404;
+      ctx.body = { error: 'Shop ID not found' };
+      return;
+    }
+
+    // Get shop sync settings
+    const syncSettings = await db.getShopSyncSetting(shopID);
+    if (!syncSettings) {
+      ctx.status = 404;
+      ctx.body = { error: 'Sync settings not found for the shop' };
+      return;
+    }
+
+    const { sync_type, selected_categories, selected_product_ids } = syncSettings;
+    const selectedCategories = selected_categories ? selected_categories.split(',') : [];
+    const selectedProductIds = selected_product_ids ? selected_product_ids.split(',') : [];
+
+    // Call RunMe with the retrieved settings
+    const result = await RunMe(shopName, accessToken, sync_type, selectedCategories, selectedProductIds);
+
+    // Respond with the result of the sync
+    ctx.body = result;
+  } catch (error) {
+    console.error('Error syncing products:', error);
+    ctx.status = 500;
+    ctx.body = { error: 'Error syncing products' };
+  }
+});
+
+
+function delay(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+const RATE_LIMIT_DELAY = 1000; // Delay of 1 second between requests
+
+cron.schedule('* * * * *', async () => {
+  try {
+    console.log('Starting product sync for all Shopify stores...');
+
+    // Step 1: Fetch all shop credentials from your database
+    const shops = await db.getAllShops();  // This should return an array of { shopName, accessToken }
+    console.log(shops,"here")
+    if (!shops || shops.length === 0) {
+      console.log('No shops found for sync.');
+      return;
+    }
+
+    // Step 2: Loop through each shop and trigger the sync
+    for (let shop of shops) {
+      const { shopName, accessToken } = shop;
+
+      if (!shopName || !accessToken) {
+        console.log(`Skipping sync for ${shopName} due to missing credentials.`);
+        continue;  // Skip this shop if there's no credentials
+      }
+
+      try {
+        // Step 3: Trigger the sync for this shop
+        if (!shopName || !accessToken) {
+          ctx.status = 400;
+          ctx.body = { error: 'Shop URL or Access Token missing in session' };
+          return;
+        }
+    
+        const shopID = await new Promise((resolve, reject) => {
+          db.getShopIDByShopName(shopName, (err, result) => {
+            if (err) {
+              reject(err);
+            } else {
+              resolve(result);
+            }
+          });
+        });
+    
+        if (!shopID) {
+          ctx.status = 404;
+          ctx.body = { error: 'Shop ID not found' };
+          return;
+        }
+    
+        // Get shop sync settings
+        const syncSettings = await db.getShopSyncSetting(shopID);
+        if (!syncSettings) {
+          ctx.status = 404;
+          ctx.body = { error: 'Sync settings not found for the shop' };
+          return;
+        }
+    
+        const { sync_type, selected_categories, selected_product_ids } = syncSettings;
+        const selectedCategories = selected_categories ? selected_categories.split(',') : [];
+        const selectedProductIds = selected_product_ids ? selected_product_ids.split(',') : [];
+    
+        // Call RunMe with the retrieved settings
+        const result = await RunMe(shopName, accessToken, sync_type, selectedCategories, selectedProductIds);
+
+
+      } catch (error) {
+        console.error(`Error syncing shop ${shopName}:`, error.message);
+      }
+    }
+
+    console.log('Product sync complete for all shops.');
+
+  } catch (error) {
+    console.error('Error in cron job:', error.message);
+  }
+});
 
 
 
@@ -1478,14 +1604,14 @@ const syncProducts = async (productIDs, baseUrl, headers, shop) => {
 
     let setDetails = {}; // Initialize setDetails for possible future use
     console.log("productIDs",productIDs)
-    let productsToSync= productIDs
+    let productsToSync=await  db.getProductsByProductIDsFromDB(productIDs)
+console.log("productsToSync",productsToSync)
     // const productsToSync = await db.getProductsByProductIDsFromDB(productIDs);
     console.log("productsToSync",productsToSync)
     if (productsToSync.length === 0) {
       console.log('No products found for the given productIDs.');
       return;
     }
-
     for (const product of productsToSync) {
       // Parse variants and images
       const parsedVariants = typeof product.variants === 'string' ? JSON.parse(product.variants || '[]') : [];
@@ -1749,6 +1875,7 @@ router.get('/api/sync-shopify', async (ctx) => {
     ctx.body = { message: 'Internal server error, please try again later.' };
   }
 });
+
 
   
   
