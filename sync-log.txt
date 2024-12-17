@@ -1,0 +1,11 @@
+{"level":"info","message":"Starting product sync for all Shopify stores..."}
+{"level":"info","message":"Fetched shops: [{\"shopName\":\"botdigit.myshopify.com\",\"accessToken\":\"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\"}]"}
+{"level":"info","message":"start importing products for "}
+{"level":"info","message":"Syncing shop: botdigit.myshopify.com"}
+{"level":"info","message":"Sync settings for botdigit.myshopify.com: sync_type=product_ids, categories=T-shirt, product_ids=2,3,7"}
+{"level":"info","message":"Triggering sync for botdigit.myshopify.com..."}
+{"level":"info","message":"No stock data for SKU: 2016100809700"}
+{"level":"info","message":"No stock data for SKU: 2016100809687"}
+{"level":"info","message":"No stock data for SKU: 2016100856728"}
+{"level":"info","message":"Error syncing SKU: 2016100809724: API Data not Found"}
+{"level":"info","message":"No stock data for SKU: 2016100809694"}
