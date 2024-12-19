@@ -1,56 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, notification, Select } from 'antd';
+import { Form, Input, Button, notification, Select, Row, Col } from 'antd';
 
 const { Option } = Select;
 
 const ApiSettingsForm = ({ onApiSubmit, loading }) => {
-  let [priceAdjustment, setPriceAdjustment] = useState({priceAdjustmentType:"",priceAdjustmentAmount:""});
-  let [turnOff, setTurnOff] = useState(0);
-  // let [loading, setLoading] = useState(false);
-  let [apiData, setApiData] = useState({
-    apikey:"",
-    apiSecret:"",
-    apiurl:""
+  const [priceAdjustment, setPriceAdjustment] = useState({
+    priceAdjustmentType: '',
+    priceAdjustmentAmount: '',
+    currency: 'USD',  // Default currency is USD
   });
-  
-  const [formApi] = Form.useForm(); // Form for API settings
-  const [formPriceAdjustment] = Form.useForm(); // Form for Price Adjustment settings
+  const [turnOff, setTurnOff] = useState(0);
+  const [availableCurrencies, setAvailableCurrencies] = useState(['USD', 'EUR', 'INR']);
+  const [apiData, setApiData] = useState({
+    apikey: 'your-api-key-here',  // Hardcoded API Key
+    apiSecret: 'your-api-secret-here',  // Hardcoded API Secret
+    apiurl: 'https://your-api-url.com',  // Hardcoded API URL
+      // Example currencies, hardcoded
+  });
 
   useEffect(() => {
     const fetchPriceAdjustment = async () => {
-      try {
-        // Use fetch to get data from the API
-        const response = await fetch(`/api/get-price-adjustment`);
-
-        if (!response.ok) {
-          throw new Error('Error fetching price adjustment data');
-        }
-
-        // Parse the response as JSON
-        const sample = await response.json();
-        const data = sample.data;
-
-        if (data.priceAdjustmentType && data.priceAdjustmentAmount !== undefined) {
-          setPriceAdjustment(data); // Set the state with fetched data
-
-          // Show notification with the fetched price adjustment settings
-          notification.success({
-            message: 'Price Adjustment Settings',
-            description: `Your setting has the type: ${data.priceAdjustmentType} and the amount: ${data.priceAdjustmentAmount}`,
-          });
-        } else {
-          notification.error({
-            message: 'No Data Found',
-            description: `No price adjustment settings found for the shop.`,
-          });
-        }
-      } catch (error) {
-        notification.error({
-          message: 'Error Fetching Data',
-          description: error.message || 'An error occurred while fetching the data.',
-        });
-      }
-      setTurnOff(1);
     };
     fetchPriceAdjustment();
   }, [turnOff]);
@@ -75,6 +44,8 @@ useEffect(() => {
 
   fetchApiData();
 }, []);
+  const [formApi] = Form.useForm(); // Form for API settings
+  const [formPriceAdjustment] = Form.useForm(); // Form for Price Adjustment settings
 
   // Function to handle API settings submission
   const handleApiSubmit = async (values) => {
@@ -120,7 +91,7 @@ useEffect(() => {
 
   // Function to handle Price Adjustment settings submission
   const handlePriceAdjustmentSubmit = async (values) => {
-    const { priceAdjustmentType, priceAdjustmentAmount } = values;
+    const { priceAdjustmentType, priceAdjustmentAmount, currency } = values;
 
     if (!priceAdjustmentType || priceAdjustmentAmount === undefined) {
       notification.error({
@@ -131,14 +102,24 @@ useEffect(() => {
     }
 
     try {
-      priceAdjustment.priceAdjustmentType= priceAdjustmentType
-      priceAdjustment.priceAdjustmentAmount= priceAdjustmentAmount
-
-      const response = await fetch(`/api/update-price-adjustment?priceAdjustmentType=${encodeURIComponent(priceAdjustmentType)}&priceAdjustmentAmount=${encodeURIComponent(priceAdjustmentAmount)}`, {
-        method: 'GET',
-        headers: { 'Content-Type': 'application/json' }
+      // Update the local state with form values for price adjustment
+      setPriceAdjustment({
+        priceAdjustmentType,
+        priceAdjustmentAmount,
+        currency,
       });
-      
+
+      // API request to update price adjustment and currency on the server
+      const response = await fetch(`/api/update-price-adjustment`, {
+        method: 'PUT',  // Assuming you are using PUT method for this API
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          priceAdjustmentType,
+          priceAdjustmentAmount,
+          currency,
+        }),
+      });
+
       const result = await response.json();
 
       if (response.ok) {
@@ -161,6 +142,37 @@ useEffect(() => {
       });
     }
   };
+
+  // Function to handle currency change
+  const handleCurrencyChange = async (newCurrency) => {
+    try {
+      const response = await fetch(`/shop/change/currency?currency=${newCurrency}`, {
+        method: 'GET',  // Use GET request
+        headers: { 'Content-Type': 'application/json' },
+      });
+  
+      const result = await response.json();
+  
+      if (response.ok) {
+        notification.success({
+          message: 'Currency Changed',
+          description: `Currency has been successfully changed to ${newCurrency}.`,
+        });
+        setPriceAdjustment(prev => ({ ...prev, currency: newCurrency })); // Update the local state with the new currency
+      } else {
+        notification.error({
+          message: 'Currency Change Failed',
+          description: result.message || 'There was an issue changing the currency.',
+        });
+      }
+    } catch (error) {
+      notification.error({
+        message: 'Error',
+        description: 'An error occurred while changing the currency.',
+      });
+    }
+  };
+  
 
   return (
     <div>
@@ -205,69 +217,49 @@ useEffect(() => {
 
       {/* Price Adjustment Form */}
       <h4 className="text-lg font-medium mb-4">Shop Settings</h4>
-      <Form
-        form={formPriceAdjustment}
-        onFinish={handlePriceAdjustmentSubmit}
-        layout="vertical"
-        requiredMark={false}
-        initialValues={{
-          priceAdjustmentType: priceAdjustment.priceAdjustmentType,  // Initialize type from state
-          priceAdjustmentAmount: priceAdjustment.priceAdjustmentAmount,  // Initialize amount from state
-        }}
-      >
-        <Form.Item
-          label="Price Adjustment Type"
-          name="priceAdjustmentType"
-          rules={[{ required: true, message: 'Please select a price adjustment type' }]}
-        >
-          <Select
-            
-            placeholder="Select price adjustment type"
-          >
+      <Form form={formPriceAdjustment} onFinish={handlePriceAdjustmentSubmit} layout="vertical" requiredMark={false} initialValues={{
+        priceAdjustmentType: priceAdjustment.priceAdjustmentType,
+        priceAdjustmentAmount: priceAdjustment.priceAdjustmentAmount,
+        currency: priceAdjustment.currency, // Set initial currency
+      }}>
+        <Form.Item label="Price Adjustment Type" name="priceAdjustmentType" rules={[{ required: true, message: 'Please select a price adjustment type' }]} >
+          <Select placeholder="Select price adjustment type">
             <Option value="fixed">Fixed</Option>
             <Option value="percentage">Percentage</Option>
           </Select>
         </Form.Item>
 
-        <Form.Item
-          label="Price Adjustment Amount"
-          name="priceAdjustmentAmount"
-          rules={[{ required: true, message: 'Please enter the price adjustment amount' }]}
-        >
-          <Input
-            type="number"
-            min={0}
-            placeholder="Enter Amount"
-            
-          />
+        <Form.Item label="Price Adjustment Amount" name="priceAdjustmentAmount" rules={[{ required: true, message: 'Please enter the price adjustment amount' }]} >
+          <Input type="number" min={0} placeholder="Enter Amount" />
         </Form.Item>
 
-        <Button
-          type="primary"
-          htmlType="submit"
-          loading={loading}
-          className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white"
-        >
+        <Form.Item label="Currency" name="currency" >
+          <Select placeholder="Select Currency" defaultValue={priceAdjustment.currency} onChange={handleCurrencyChange}>
+            {availableCurrencies && availableCurrencies.map((currency) => (
+              <Option key={currency} value={currency}>{currency}</Option>
+            ))}
+          </Select>
+        </Form.Item>
+
+        <Button type="primary" htmlType="submit" loading={loading} className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white">
           Apply Price Adjustment
         </Button>
       </Form>
+
+      {/* Display selected price adjustment type and amount */}
       <div>
         <strong>Type: </strong>
-        <span>
-          {priceAdjustment.priceAdjustmentType !== undefined && priceAdjustment.priceAdjustmentType !== null
-            ? `${priceAdjustment.priceAdjustmentType}`
-            : 'Type not defined '}
-        </span>
+        <span>{priceAdjustment.priceAdjustmentType || 'Type not defined'}</span>
       </div>
       <div>
         <strong>Amount: </strong>
-        <span>
-          {priceAdjustment.priceAdjustmentAmount !== undefined && priceAdjustment.priceAdjustmentAmount !== null
-            ? `$${priceAdjustment.priceAdjustmentAmount}`
-            : 'N/A'}
-        </span>
+        <span>{priceAdjustment.priceAdjustmentAmount !== undefined ? `$${priceAdjustment.priceAdjustmentAmount}` : 'N/A'}</span>
       </div>
+      <div>
+        <strong>Currency: </strong>
+        <span>{priceAdjustment.currency}</span>
       </div>
+    </div>
   );
 };
 

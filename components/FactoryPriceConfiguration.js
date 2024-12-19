@@ -172,7 +172,7 @@ const SyncSettings = () => {
     <div className="sync-settings-container">
       <h1 className="sync-header">Factory Price API</h1>
 
-      <Row justify="center">
+      {/* <Row justify="center">
         <Col xs={24} className="text-right">
           <Button
             onClick={handleSyncShopify}
@@ -183,7 +183,7 @@ const SyncSettings = () => {
             Sync Products Now
           </Button>
         </Col>
-      </Row>
+      </Row> */}
 
       {/* All Page Section */}
       <div className="mb-6">

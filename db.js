@@ -17,8 +17,27 @@ db.run(`
     accessToken TEXT NOT NULL,
     priceAdjustmentType TEXT NOT NULL DEFAULT 'fixed', -- Type of price adjustment: 'fixed' or 'percentage'
     priceAdjustmentAmount REAL NOT NULL DEFAULT 0,    -- Amount of price adjustment (could be a fixed value or a percentage)
+    currency TEXT NOT NULL DEFAULT 'USD',
     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(shopName) -- ensures the shopName is unique
+  )
+`, (err) => {
+  if (err) {
+    console.error('Error creating shop table:', err);
+  } else {
+    console.log('shop table created or already exists.');
+  }
+});
+db.run(`
+  CREATE TABLE IF NOT EXISTS user_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    level TEXT NOT NULL,                -- Log level (e.g., 'info', 'error')
+    message TEXT NOT NULL,              -- The actual log message
+    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, -- Timestamp of the log
+    shop_id TEXT NOT NULL,              -- Unique identifier for the shop
+    sku TEXT DEFAULT NULL,              -- Optional SKU for filtering by product
+    error_message TEXT DEFAULT NULL     -- Optional error message for specific errors
+);
   )
 `, (err) => {
   if (err) {
@@ -343,7 +362,115 @@ const saveProductToDB = async (productData) => {
 };
 
 
+function insertLog(level, message, shop_id, sku = null, error_message = null) {
+  const timestamp = new Date().toISOString();
 
+  const insertQuery = `
+      INSERT INTO user_logs (level, message, timestamp, shop_id, sku, error_message)
+      VALUES (?, ?, ?, ?, ?, ?);
+  `;
+  
+ 
+
+  db.run(insertQuery, [level, message, timestamp, shop_id, sku, error_message], function(err) {
+      if (err) {
+          console.error('Error inserting log', err);
+      } else {
+          console.log('Log entry inserted with ID:', this.lastID);
+      }
+  });
+}
+
+function changeCurrency(shopId, newCurrency) {
+  return new Promise((resolve, reject) => {
+    // SQL query to update the currency field for the shop with the specified ID
+    const query = `
+      UPDATE shop
+      SET currency = ?
+      WHERE shopName = ?
+    `;
+
+    // Run the query with the new currency and shop ID
+    db.run(query, [newCurrency, shopId], function (err) {
+      if (err) {
+        // Reject the promise if an error occurs
+        reject('Error updating currency: ' + err.message);
+      } else if (this.changes === 0) {
+        // If no rows were updated (shop not found), reject the promise
+        reject('Shop not found or no changes made.');
+      } else {
+        // Resolve the promise with a success message
+        resolve('Currency updated successfully.');
+      }
+    });
+  });
+}
+
+
+function getLogsByShop(shopName, limit = 10) {
+  return new Promise((resolve, reject) => {
+    const query = `
+      SELECT * FROM user_logs 
+      WHERE shop_id= ?  -- Using shop_name instead of shop_id
+      ORDER BY timestamp DESC
+      LIMIT ?;
+    `;
+
+    db.all(query, [shopName, limit], (err, rows) => {
+      if (err) {
+        console.error('Error fetching logs', err);
+        reject(err);  // Reject the promise with the error
+      } else {
+        if (rows.length === 0) {
+          resolve([]);  // Resolve with an empty array if no logs are found
+        } else {
+          resolve(rows);  // Resolve with the fetched rows
+        }
+      }
+    });
+  });
+}
+
+
+function getCurrencyByShopName(shopId) {
+  return new Promise((resolve, reject) => {
+    // SQL query to fetch the currency of the shop
+    const query = `
+      SELECT currency
+      FROM shop
+      WHERE shopName = ?
+    `;
+    
+    // Execute the query
+    db.get(query, [shopId], (err, row) => {
+      if (err) {
+        return reject('Error fetching currency: ' + err.message); // Handle error
+      }
+      if (!row) {
+        return reject('Shop not found.'); // If no shop is found with the provided shopId
+      }
+
+      // Return the selected currency
+      resolve(row.currency);
+    });
+  });
+}
+
+
+
+function deleteLogsByShop(shopName) {
+  return new Promise((resolve, reject) => {
+    const query = `DELETE FROM user_logs WHERE shop_id = ?`;
+
+    db.run(query, [shopName], function (err) {
+      if (err) {
+        reject(err);
+      } else {
+        resolve();
+      }
+    });
+  });
+}
 
 
 const getAllProductsFromDB = async (limit = 100, offset = 0) => {
@@ -446,6 +573,31 @@ const getProductsByProductIDsFromDB = async (productIDs) => {
   }
 };
 
+const getProductByID = async (productID) => {
+  console.log("productID", productID);
+  try {
+    // Returning a single product based on the productID
+    const product = await new Promise((resolve, reject) => {
+      const query = `SELECT * FROM products WHERE id = ?`;
+      db.get(query, [productID], (err, row) => {
+        if (err) {
+          console.error(`Error retrieving product with productID ${productID} from DB`, err);
+          return reject(err);
+        }
+        if (row) {
+          resolve(row); // Resolve with the product (row)
+        } else {
+          resolve(null); // Resolve with null if no product is found
+        }
+      });
+    });
+
+    return product; // Return the single product or null if not found
+  } catch (e) {
+    console.error('Error in getProductByID:', e);
+    return null; // Return null if there's an error
+  }
+};
 
 // Add this function to your db logic
 const countProducts = async () => {
@@ -932,5 +1084,11 @@ module.exports = {
   updatePriceAdjustment,
 getPriceAdjustmentByShopName,
 getProductsByProductIDsFromDB,
-getAllShops
+getAllShops,
+insertLog,
+getLogsByShop,
+deleteLogsByShop,
+changeCurrency,
+getCurrencyByShopName,
+getProductByID
 };

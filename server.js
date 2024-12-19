@@ -537,11 +537,68 @@ router.delete('/api/deleteAPI', async (ctx) => {
 
 
 
+router.get('/shop/change/currency', async (ctx) => {
+  const { shop } = ctx.session; // Get the shop ID from the session
+  const { currency } = ctx.query; // Get the currency from the query string
+  
+  if (!currency) {
+    ctx.status = 400;
+    ctx.body = { error: 'Currency is required' };
+    return;
+  }
+
+  try {
+    const message = await db.changeCurrency(shop, currency);
+    ctx.status = 200;
+    ctx.body = { message };
+  } catch (error) {
+    console.log(error)
+    ctx.status = 500;
+    ctx.body = { error: error.message || 'An error occurred' };
+  }
+});
+
 
 // const axios = require('axios'); // To make HTTP requests to Shopify API
 
 // Add the create product route
+router.post('/logs', async (ctx) => {
+  const { level, message, shop_id, sku, error_message } = ctx.request.body;
 
+  // Input validation
+  if (!level || !message || !shop_id) {
+    ctx.status = 400;
+    ctx.body = { error: 'Missing required fields: level, message, or shop_id.' };
+    return;
+  }
+
+  try {
+    const logId = await db.insertLog(level, message, shop_id, sku, error_message);
+    ctx.status = 201;
+    ctx.body = { id: logId, message: 'Log inserted successfully' };
+  } catch (error) {
+    ctx.status = 500;
+    ctx.body = { error: 'Failed to insert log.' };
+  }
+});
+
+router.delete('/logs/:shop_id', async (ctx) => {
+  const shop_id = ctx.params.shop_id;
+
+  try {
+    const changes = await db.deleteLogsByShopId(shop_id);
+    if (changes > 0) {
+      ctx.status = 200;
+      ctx.body = { message: 'Logs deleted successfully.' };
+    } else {
+      ctx.status = 404;
+      ctx.body = { message: 'No logs found for this shop_id.' };
+    }
+  } catch (error) {
+    ctx.status = 500;
+    ctx.body = { error: 'Failed to delete logs.' };
+  }
+});
 router.get('/api/create/products', async (ctx) => {
   try {
     // Get the shop settings from the database
@@ -1277,8 +1334,8 @@ const fetchFactoryPriceData = async (sku) => {
 
 const RunMe = async (shopUrl, accessToken, syncType, selectedCategories, selectedProductIds) => {
   try {
-    const baseUrl = `https://${shopUrl}/admin/api/2023-10`; // Replace with your actual Shopify API base URL
-    console.log(accessToken,"Access Token")
+    const shop_id = shopUrl; // Assuming shopUrl is unique for each shop
+    const baseUrl = `https://${shopUrl}/admin/api/2023-10`; // Shopify API base URL
     const headers = {
       'X-Shopify-Access-Token': accessToken,
       'Content-Type': 'application/json',
@@ -1287,35 +1344,79 @@ const RunMe = async (shopUrl, accessToken, syncType, selectedCategories, selecte
     // Ensure syncType is valid
     if (!syncType || !['product_ids', 'categories'].includes(syncType)) {
       console.error('Invalid sync type specified');
+      await db.insertLog('error', 'Invalid sync type specified', shop_id);
       return;
     }
 
     if (syncType === 'product_ids' && selectedProductIds.length > 0) {
       // Sync products by product IDs
       console.log(`Syncing products by product IDs: ${selectedProductIds}`);
+      await db.insertLog('info', `Syncing products by product IDs: ${selectedProductIds.join(', ')}`, shop_id);
       await syncProducts(selectedProductIds, baseUrl, headers, shopUrl);
     } else if (syncType === 'categories' && selectedCategories.length > 0) {
       // Sync products by categories
       console.log(`Syncing products by categories: ${selectedCategories}`);
+      await db.insertLog('info', `Syncing products by categories: ${selectedCategories.join(', ')}`, shop_id);
       await syncCategories(selectedCategories, baseUrl, headers, shopUrl);
     } else {
       console.log('No valid product IDs or categories selected for syncing.');
+      await db.insertLog('warning', 'No valid product IDs or categories selected for syncing.', shop_id);
     }
 
     console.log(`Sync process completed for shop: ${shopUrl}`);
+    await db.insertLog('info', `Sync process completed for shop: ${shopUrl}`, shop_id);
   } catch (error) {
     console.error('Error in RunMe:', error.message || error);
+    await db.insertLog('error', `Error in RunMe: ${error.message || error}`, shopUrl);
     throw new Error('Error during sync process');
   }
 };
+router.get('/api/logs', async (ctx) => {
+  const shopName = ctx.session.shop;  // Getting the shop name from the session
+  const limit = ctx.query.limit || 50; // Default limit to 50 if not provided
+
+  // Validate the shopName (simple validation for example purposes)
+  if (!shopName) {
+    ctx.status = 400;
+    ctx.body = { error: 'Shop Name is required' };
+    return;
+  }
+
+  try {
+    // Await the result from the getLogsByShop function
+    const logs = await db.getLogsByShop(shopName, limit);
+
+    if (logs.length === 0) {
+      ctx.status = 404;
+      ctx.body = { message: 'No logs found for this shop' };
+    } else {
+      ctx.status = 200;
+      ctx.body = { shopName, logs };
+    }
+  } catch (error) {
+    console.error("Error fetching logs:", error);
+    ctx.status = 500;
+    ctx.body = { error: 'Failed to retrieve logs', details: error.message };
+  }
+});
+
+// API endpoint to get logs by shopId
+
+
 
 // Helper function to sync Categories
 // Helper function to sync Categories with logging
-const syncCategories = async (selectedCategories, baseUrl, headers, shop) => {
-  const PriceDetails = await db.getPriceAdjustmentByShopName(shop);
-  let setDetails = {}; // Initialize setDetails for possible future use
+const syncCategories = async (selectedCategories, baseUrl, headers, shopName) => {
+  const shop_id = shopName;
+  const PriceDetails = await db.getPriceAdjustmentByShopName(shopName);
 
   try {
+    const selectedCurrency = await db.getCurrencyByShopName(shop_id);
+    console.log('Selected Currency:', selectedCurrency);
+
+    const exchangeRates = await fetchExchangeRate();
+    console.log('Exchange Rates:', exchangeRates);
+
     for (const category of selectedCategories) {
       let offset = 0;
 
@@ -1324,18 +1425,20 @@ const syncCategories = async (selectedCategories, baseUrl, headers, shop) => {
         if (productsToSync.length === 0) break;
 
         for (const product of productsToSync) {
-          // Parse variants and images
+          await db.insertLog('info', `Starting sync for product: ${product.productID} in category: ${category}`, shop_id);
+
           const parsedVariants = typeof product.variants === 'string' ? JSON.parse(product.variants || '[]') : [];
           const parsedImages = typeof product.pictures === 'string' ? JSON.parse(product.pictures || '[]') : [];
 
           if (!parsedVariants.length) {
             console.warn(`Skipping product ${product.productID} due to no variants.`);
-            // logAction(`Skipped product ${product.productID} (No variants)`); // Log warning to file
+            await db.insertLog('warning', `Skipping product ${product.productID} due to no variants`, shop_id);
             continue;
           }
 
           const uniqueHandle = `${product.productID || ''}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
+          // Prepare the product payload
           const productPayload = {
             product: {
               body_html: product.description || '',
@@ -1349,7 +1452,7 @@ const syncCategories = async (selectedCategories, baseUrl, headers, shop) => {
                 src: image,
                 position: index + 1,
               })),
-              variants: [],  // We'll populate this after fetching the data
+              variants: [],
               options: [{
                 name: 'Size',
                 position: 1,
@@ -1358,122 +1461,101 @@ const syncCategories = async (selectedCategories, baseUrl, headers, shop) => {
             },
           };
 
-          // Populate variants with price, SKU, and stock information
+          // Add all variants to the product payload
           for (const variant of parsedVariants) {
             const data = await fetchFactoryPriceData(variant.code);
-            if (!data){
-              console.warn(`No stock data for SKU: ${variant.code}`);
-              // logAction(`No stock data for SKU: ${variant.code}`);
-            }
-              const price = parseFloat(PriceDetails.type === 'percentage'
-                ? product.suggested_price_netto_pln + (product.suggested_price_netto_pln * (PriceDetails.value / 100))  // Apply percentage
-                : product.suggested_price_netto_pln + PriceDetails.value || 10);  // Ensure valid price
+            const adjustedPrice = PriceDetails.data.priceAdjustmentType === 'percentage'
+              ? product.suggested_price_netto_pln * (1 + PriceDetails.data.priceAdjustmentAmount / 100)
+              : product.suggested_price_netto_pln + PriceDetails.data.priceAdjustmentAmount || 10;
 
-              productPayload.product.variants.push({
-                sku: variant.code || '',
-                price: price.toFixed(2),  // Set the price for the variant
-                inventory_quantity: data?.stockAvailable ||0,  // Set inventory_quantity from fetched data
-                option1: variant.size || 'Havana',  // Default size if none provided
-                position: parsedVariants.indexOf(variant) + 1,  // Position of the variant in the list
-                inventory_management: 'shopify',  // Ensure inventory is managed by Shopify
-              });
-            
+            let convertedPrice = adjustedPrice * exchangeRates[selectedCurrency];
+
+            // Ensure valid price
+            if (isNaN(convertedPrice) || convertedPrice <= 0) {
+              console.warn(`Invalid converted price for SKU ${variant.code}, falling back to default value.`);
+              convertedPrice = 10.00;  // Default value if conversion fails
+            }
+
+            console.log(`Converted Price for ${variant.code}: ${convertedPrice}`);
+
+            // Add each variant to the productPayload
+            productPayload.product.variants.push({
+              sku: variant.code || '',
+              price: convertedPrice.toFixed(2),
+              inventory_quantity: data?.stockAvailable || 0,
+              option1: variant.size || 'Default',
+              position: parsedVariants.indexOf(variant) + 1,
+              inventory_management: 'shopify',
+            });
           }
 
-          // Log product creation or update
-          // logAction(`Attempting to create or update product: ${product.productID}`); // Log attempt to create or update product
+          const sku = parsedVariants[0]?.code; // Get the SKU from the first variant for checking
 
-          // Now, proceed with updating or creating the product (syncing with Shopify)
-          for (const variant of parsedVariants) {
-            const sku = variant.code;
+          if (!sku || sku.trim() === '') {
+            console.warn(`Invalid SKU for product ${product.productID}, skipping update.`);
+            await db.insertLog('warning', `Skipping product ${product.productID} due to invalid SKU.`, shop_id);
+            continue;
+          }
 
-            if (!sku || sku.trim() === '') {
-              console.warn(`Invalid SKU for product ${product.productID}, skipping update.`);
-              // logAction(`Skipped updating product ${product.productID} due to invalid SKU.`); // Log skipped update
-              continue;
-            }
+          try {
+            const existingProductResponse = await axios.get(`${baseUrl}/products.json`, {
+              headers,
+              params: { sku },
+            });
 
-            try {
-              // Search for existing product by SKU
-              const existingProductResponse = await axios.get(`${baseUrl}/products.json`, {
-                headers,
-                params: { sku },
-              });
-              console.log(existingProductResponse ,"existingProductResponse ",sku)
+            const existingProduct = existingProductResponse.data.products.find((prod) =>
+              prod.variants.some((v) => v.sku === sku)
+            );
 
-              const existingProduct = existingProductResponse.data.products.find((prod) =>
-                prod.variants.some((v) => v.sku === sku)
+            if (existingProduct) {
+              // If product exists, update it with all variants (add variants to existing product)
+              const updateProductResponse = await axios.put(
+                `${baseUrl}/products/${existingProduct.id}.json`,
+                productPayload,
+                { headers }
               );
-              console.log(existingProduct ,"existing ",sku)
-              if (existingProduct) {
-                const existingVariant = existingProduct.variants.find((v) => v.sku === sku);
 
-                if (existingVariant) {
-                  // Update existing variant with new price and quantity
-                  const updateVariantResponse = await axios.put(
-                    `${baseUrl}/products/${existingProduct.id}/variants/${existingVariant.id}.json`,
-                    {
-                      variant: {
-                        price: PriceDetails.data.priceAdjustmentType === 'percentage'
-                          ? parseFloat(product.suggested_price_netto_pln) + (parseFloat(product.suggested_price_netto_pln) * (parseFloat(PriceDetails.data.priceAdjustmentAmount) / 100))  // Apply percentage
-                          : parseFloat(product.suggested_price_netto_pln) + parseFloat(PriceDetails.data.priceAdjustmentAmount) || 10,
-                        inventory_quantity: data.stockAvailable || 10,  // Ensure quantity is passed
-                        inventory_management: 'shopify',  // Ensure inventory management is by Shopify
-                      },
-                    },
-                    { headers }
-                  );
-
-                  if (updateVariantResponse.status === 200) {
-                    // logAction(`Updated variant with SKU: ${sku}`); // Log successful update
-                    console.log(`Updated variant with SKU: ${sku}`, updateVariantResponse.data);
-                  } else {
-                    // logAction(`Failed to update variant with SKU: ${sku}`); // Log failed update
-                    console.error(`Failed to update variant with SKU: ${sku}`, updateVariantResponse.data);
-                  }
-                } else {
-                  // Add a new variant to the existing product
-                  const addVariantResponse = await axios.post(
-                    `${baseUrl}/products/${existingProduct.id}/variants.json`,
-                    {
-                      variant: {
-                        sku,
-                        price: parseFloat(variant.price || 20).toFixed(2),
-                        inventory_quantity: variant.quantity || 10,
-                        inventory_management: 'shopify',  // Ensure inventory management is by Shopify
-                      },
-                    },
-                    { headers }
-                  );
-                  // logAction(`Added new variant with SKU: ${sku}`); // Log new variant addition
-                  console.log(`Added new variant with SKU: ${sku}`, addVariantResponse.data);
-                }
+              if (updateProductResponse.status === 200) {
+                console.log(`Updated product with SKU: ${sku}`);
+                await db.insertLog('info', `Updated product with SKU: ${sku}`, shop_id);
               } else {
-                // Create a new product if none exists
-                const createResponse = await axios.post(`${baseUrl}/products.json`, productPayload, { headers });
-                // logAction(`Created new product with SKU: ${sku}`); // Log new product creation
-                console.log(`Created new product with SKU: ${sku}`, createResponse.data);
+                console.error(`Failed to update product with SKU: ${sku}`);
+                await db.insertLog('error', `Failed to update product with SKU: ${sku}`, shop_id);
               }
-            } catch (error) {
-              console.error(`Error syncing SKU: ${sku}`, error.response?.data || error.message);
-              // logAction(`Error syncing SKU: ${sku}: ${error.message || error.response?.data}`); // Log sync error
+            } else {
+              // If product doesn't exist, create it with all variants at once
+              const createProductResponse = await axios.post(`${baseUrl}/products.json`, productPayload, { headers });
+              if (createProductResponse.status === 201) {
+                console.log(`Created new product with SKU: ${sku}`);
+                await db.insertLog('info', `Created new product with SKU: ${sku}`, shop_id);
+              } else {
+                console.error(`Failed to create product with SKU: ${sku}`);
+                await db.insertLog('error', `Failed to create product with SKU: ${sku}`, shop_id);
+              }
             }
+          } catch (error) {
+            console.error(`Error syncing SKU: ${sku}`, error.response?.data || error.message);
+            await db.insertLog('error', `Error syncing SKU: ${sku}: ${error.message}`, shop_id);
           }
         }
 
-        offset += 50; // Increment offset for pagination
+        offset += 50;  // Increment offset for pagination
       }
     }
 
-    // logAction('Sync completed successfully for all categories.'); // Log success
     console.log('Sync completed successfully for all categories.');
-
+    await db.insertLog('info', 'Sync completed successfully for all categories.', shop_id);
   } catch (error) {
-    console.error('Error syncing products by category:', error.response?.data || error.message);
-    // logAction(`Error syncing products by category: ${error.message || error.response?.data}`); // Log error
+    console.error('Error syncing products by category:', error.message || error);
+    await db.insertLog('error', `Error syncing products by category: ${error.message}`, shop_id);
     throw new Error('Error syncing products by category');
   }
 };
+
+
+
+
+
 
 
 router.get('/api/create/products', async (ctx) => {
@@ -1636,40 +1718,96 @@ cron.schedule('0 * * * *', async () => {
 });
 
 
+// In your Koa router or Express route, handle the DELETE request
+router.delete('/api/logs', async (ctx) => {
+  const shopName = ctx.session.shop; // Assuming shopName is stored in the session
 
+  if (!shopName) {
+    ctx.status = 400;
+    ctx.body = { error: 'Shop name is required' };
+    return;
+  }
 
-
-
-
-
-
-
-
-
-// Helper function to sync Products
-const syncProducts = async (productIDs, baseUrl, headers, shop) => {
+  // Perform deletion from the database (using Promise for better error handling)
   try {
-    const PriceDetails = await db.getPriceAdjustmentByShopName(shop);
-    console.log("productIDs", productIDs);
-    let productsToSync = await db.getProductsByProductIDsFromDB(productIDs);
-    console.log("productsToSync", productsToSync);
+    await db.deleteLogsByShop(shopName);
+    ctx.status = 200;
+    ctx.body = { message: 'Logs deleted successfully' };
+  } catch (error) {
+    console.error('Error deleting logs:', error);
+    ctx.status = 500;
+    ctx.body = { error: 'Failed to delete logs', details: error.message };
+  }
+});
 
-    if (productsToSync.length === 0) {
-      // logAction('No products found for the given productIDs.');
-      return;
+// Function to delete logs by shopName
+
+
+
+
+
+
+
+
+
+
+
+// Ensure that convertedPrice is always valid before using parseFloat
+const getValidConvertedPrice = (adjustedPrice, exchangeRate) => {
+  let convertedPrice = 0;
+
+  try {
+    // Calculate the converted price
+    convertedPrice = adjustedPrice * exchangeRate;
+    // Ensure the value is a valid number and handle cases where it's not
+    if (isNaN(convertedPrice) || convertedPrice <= 0) {
+      console.warn('Invalid converted price, falling back to default value.');
+      convertedPrice = 10.00;  // Default value
     }
+  } catch (error) {
+    console.error('Error calculating converted price:', error);
+    convertedPrice = 10.00;  // Default value if there is an error
+  }
 
-    for (const product of productsToSync) {
+  return convertedPrice;
+};
+
+const syncProducts = async (productIDs, baseUrl, headers, shopName) => {
+  const shop_id = shopName; // Using shop_name as shop_id for logging purposes
+  const PriceDetails = await db.getPriceAdjustmentByShopName(shopName);
+  console.log(shop_id, PriceDetails);
+
+  try {
+    const selectedCurrency = await db.getCurrencyByShopName(shop_id);
+    console.log('Selected Currency:', selectedCurrency);
+
+    const exchangeRates = await fetchExchangeRate();
+    const exchangeRate = exchangeRates[selectedCurrency];
+    if (!exchangeRate) {
+      throw new Error(`No exchange rate found for currency: ${selectedCurrency}`);
+    }
+    console.log('Exchange Rates:', exchangeRates);
+
+    for (const productID of productIDs) {
+      const product = await db.getProductByID(productID);
+
+      if (!product) {
+        console.warn(`Product with ID ${productID} not found in DB`);
+        continue;
+      }
+
+      await db.insertLog('info', `Starting sync for product: ${product.productID}`, shop_id);
+
       const parsedVariants = typeof product.variants === 'string' ? JSON.parse(product.variants || '[]') : [];
       const parsedImages = typeof product.pictures === 'string' ? JSON.parse(product.pictures || '[]') : [];
 
       if (!parsedVariants.length) {
         console.warn(`Skipping product ${product.productID} due to no variants.`);
-        // logAction(`Skipping product ${product.productID} due to no variants.`);
+        await db.insertLog('warning', `Skipping product ${product.productID} due to no variants`, shop_id);
         continue;
       }
 
-      const uniqueHandle = `${product.productID || ''}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const uniqueHandle = `${product.productID}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
       const productPayload = {
         product: {
@@ -1693,32 +1831,41 @@ const syncProducts = async (productIDs, baseUrl, headers, shop) => {
         },
       };
 
+      // Loop through variants to calculate prices and add them
       for (const variant of parsedVariants) {
         const data = await fetchFactoryPriceData(variant.code);
-        if(!data){
-            console.warn(`No stock data for SKU: ${variant.code}`);
-            // logAction(`No stock data for SKU: ${variant.code}`);
+
+        // Recalculate the adjusted price for each variant and product
+        const adjustedPrice = PriceDetails.data.priceAdjustmentType === 'percentage'
+          ? product.suggested_price_netto_pln * (1 + PriceDetails.data.priceAdjustmentAmount / 100)
+          : product.suggested_price_netto_pln + PriceDetails.data.priceAdjustmentAmount || 10;
+
+        // Recalculate converted price for each variant based on the exchange rate
+        let convertedPrice = adjustedPrice * exchangeRate;
+
+        // Ensure valid convertedPrice and apply fallback if necessary
+        if (isNaN(convertedPrice) || convertedPrice <= 0) {
+          console.warn(`Invalid converted price for SKU ${variant.code}, falling back to default value.`);
+          convertedPrice = 10.00;  // Default value in case of invalid price
         }
-          const price = parseFloat(PriceDetails.data.priceAdjustmentType === 'percentage'
-            ? product.suggested_price_netto_pln + (product.suggested_price_netto_pln * (parseFloat(PriceDetails.data.priceAdjustmentAmount) / 100))
-            : product.suggested_price_netto_pln + parseFloat(PriceDetails.data.priceAdjustmentAmount) || 10);
 
-          productPayload.product.variants.push({
-            sku: variant.code || '',
-            price: price,
-            inventory_quantity: parseInt(data?.stockAvailable ||0),
-            option1: variant.size || 'Default',
-            position: parsedVariants.indexOf(variant) + 1,
-            inventory_management: 'shopify',
-          });
-      }
+        console.log(`Converted Price for ${variant.code}: ${convertedPrice}`);
 
-      for (const variant of parsedVariants) {
+        // Add the variant data to the product payload
+        productPayload.product.variants.push({
+          sku: variant.code || '',
+          price: convertedPrice.toFixed(2),
+          inventory_quantity: data?.stockAvailable || 0,
+          option1: variant.size || 'Default',
+          position: parsedVariants.indexOf(variant) + 1,
+          inventory_management: 'shopify',
+        });
+
+        // If the product already exists, update the variant
         const sku = variant.code;
-
         if (!sku || sku.trim() === '') {
-          console.warn(`Invalid SKU for product ${product.title}, skipping update.`);
-          // logAction(`Invalid SKU for product ${product.productID}, skipping update.`);
+          console.warn(`Invalid SKU for product ${product.productID}, skipping update.`);
+          await db.insertLog('warning', `Skipping product ${product.productID} due to invalid SKU.`, shop_id);
           continue;
         }
 
@@ -1734,20 +1881,17 @@ const syncProducts = async (productIDs, baseUrl, headers, shop) => {
 
           if (existingProduct) {
             const existingVariant = existingProduct.variants.find((v) => v.sku === sku);
-            const apiData = await fetchFactoryPriceData(sku);
-            if (!apiData) {
-              throw new Error("API Data not Found");
-            }
 
             if (existingVariant) {
+              // Recalculate price before updating
+              const updatedConvertedPrice = adjustedPrice * exchangeRate;
+
               const updateVariantResponse = await axios.put(
                 `${baseUrl}/products/${existingProduct.id}/variants/${existingVariant.id}.json`,
                 {
                   variant: {
-                    price: parseFloat(PriceDetails.data.priceAdjustmentType == 'percentage'
-                      ? parseFloat(product.suggested_price_netto_pln) + (parseFloat(product.suggested_price_netto_pln) * (parseFloat(PriceDetails.data.priceAdjustmentAmount) / 100))
-                      : parseFloat(product.suggested_price_netto_pln) + parseFloat(PriceDetails.data.priceAdjustmentAmount)) || 10,
-                    inventory_quantity: apiData.stockAvailable || 10,
+                    price: updatedConvertedPrice.toFixed(2),  // Use recalculated converted price
+                    inventory_quantity: data?.stockAvailable || 0,
                     inventory_management: 'shopify',
                   },
                 },
@@ -1756,64 +1900,66 @@ const syncProducts = async (productIDs, baseUrl, headers, shop) => {
 
               if (updateVariantResponse.status === 200) {
                 console.log(`Updated variant with SKU: ${sku}`);
-                // logAction(`Updated variant with SKU: ${sku}`);
+                await db.insertLog('info', `Updated variant with SKU: ${sku}`, shop_id);
               } else {
                 console.error(`Failed to update variant with SKU: ${sku}`);
-                // logAction(`Failed to update variant with SKU: ${sku}`);
+                await db.insertLog('error', `Failed to update variant with SKU: ${sku}`, shop_id);
               }
-            } else {
-              const addVariantResponse = await axios.post(
-                `${baseUrl}/products/${existingProduct.id}/variants.json`,
-                {
-                  variant: {
-                    sku,
-                    price: parseFloat(PriceDetails.data.priceAdjustmentType === 'percentage'
-                      ? parseFloat(product.suggested_price_netto_pln) + (parseFloat(product.suggested_price_netto_pln) * (PriceDetails.data.value / 100))
-                      : parseFloat(product.suggested_price_netto_pln) + PriceDetails.value),
-                    inventory_quantity: apiData.stockAvailable || 10,
-                    inventory_management: 'shopify',
-                  },
-                },
-                { headers }
-              );
-              console.log(`Added new variant with SKU: ${sku}`);
-              // logAction(`Added new variant with SKU: ${sku}`);
             }
           } else {
             const createResponse = await axios.post(`${baseUrl}/products.json`, productPayload, { headers });
             console.log(`Created new product with SKU: ${sku}`);
-            // logAction(`Created new product with SKU: ${sku}`);
+            await db.insertLog('info', `Created new product with SKU: ${sku}`, shop_id);
           }
         } catch (error) {
           console.error(`Error syncing SKU: ${sku}`, error.response?.data || error.message);
-          // logAction(`Error syncing SKU: ${sku}: ${error.message}`);
+          await db.insertLog('error', `Error syncing SKU: ${sku}: ${error.message}`, shop_id);
         }
       }
     }
 
-    console.log('Sync completed successfully for all productIDs.');
-    // logAction('Sync completed successfully for all productIDs.');
+    console.log("Sync completed successfully for all products.");
+    await db.insertLog('info', 'Sync completed successfully for all products.', shop_id);
+
   } catch (error) {
-    console.error('Error syncing products by productID:', error.response?.data || error.message);
-    // logAction(`Error syncing products by productID: ${error.message}`);
-    throw new Error('Error syncing products by productID');
+    console.error("Error syncing products:", error.message || error);
+    await db.insertLog('error', `Error syncing products: ${error.message}`, shop_id);
+    throw new Error('Error syncing products');
   }
 };
 
-const syncAllProducts = async (baseUrl, headers, shop) => {
+
+
+
+
+
+
+
+async function fetchExchangeRate(baseCurrency) {
   try {
-    const batchSize = 100; // Adjust batch size based on your needs
+    const response = await axios.get(`https://open.er-api.com/v6/latest/USD`);
+    return response.data.rates;
+  } catch (error) {
+    console.error("Error fetching exchange rates:", error.message);
+    throw new Error("Failed to fetch exchange rates.");
+  }
+}
+
+const syncAllProducts = async (baseUrl, headers, shopName) => {
+  const shop_id = shopName;
+  try {
+    const batchSize = 100;
     let offset = 0;
     let productsBatch;
 
     console.log("Starting full product sync...");
-    // logAction("Starting full product sync..."); // Log the start of the full sync
+    await db.insertLog('info', 'Starting full product sync...', shop_id);
 
     do {
       // Fetch products in batches
       productsBatch = await getAllProductsFromDB(batchSize, offset);
       console.log(`Fetched ${productsBatch.length} products with offset ${offset}`);
-      // logAction(`Fetched ${productsBatch.length} products with offset ${offset}`); // Log the batch fetch
+      await db.insertLog('info', `Fetched ${productsBatch.length} products with offset ${offset}`, shop_id);
 
       if (productsBatch.length > 0) {
         // Extract productIDs from the batch
@@ -1821,11 +1967,11 @@ const syncAllProducts = async (baseUrl, headers, shop) => {
 
         // Call the syncProducts function for the current batch
         try {
-          await syncProducts(productIDs, baseUrl, headers, shop);
-          // logAction(`Successfully synced batch with ${productsBatch.length} products.`); // Log successful sync
+          await syncProducts(productIDs, baseUrl, headers, shopName);
+          await db.insertLog('info', `Successfully synced batch with ${productsBatch.length} products.`, shop_id);
         } catch (error) {
           console.error(`Error syncing batch with offset ${offset}: ${error.message || error}`);
-          // logAction(`Error syncing batch with offset ${offset}: ${error.message || error}`); // Log sync error
+          await db.insertLog('error', `Error syncing batch with offset ${offset}: ${error.message || error}`, shop_id);
         }
       }
 
@@ -1834,12 +1980,15 @@ const syncAllProducts = async (baseUrl, headers, shop) => {
     } while (productsBatch.length > 0); // Continue until no more products are retrieved
 
     console.log("Sync all products completed successfully.");
-    // logAction("Sync all products completed successfully."); // Log successful completion
+    await db.insertLog('info', 'Sync all products completed successfully.', shop_id);
   } catch (error) {
     console.error("Error in syncAllProducts:", error.message || error);
-    // logAction(`Error in syncAllProducts: ${error.message || error}`); // Log general sync error
+    await db.insertLog('error', `Error in syncAllProducts: ${error.message || error}`, shop_id);
   }
 };
+
+
+
 
 // Router handling the /sync-shopify request
 router.get('/api/sync-shopify', async (ctx) => {
