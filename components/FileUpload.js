@@ -1,5 +1,5 @@
 import React, { useState,useEffect } from 'react';
-import { Select, Button, Row, Col, Typography, Table, message, Spin ,notification,Space ,Tooltip } from 'antd';
+import { Select, Button, Row, Col, Typography, Table, message, Spin ,notification,Space ,Tooltip ,Checkbox} from 'antd';
 import { UploadOutlined, AppstoreAddOutlined } from '@ant-design/icons';
 import { xml2js } from 'xml-js';
 import { saveAs } from 'file-saver';
@@ -13,6 +13,7 @@ const { Title, Text } = Typography;
 function TopBar() {
   const [file1, setFile1] = useState(null);
   const [file2, setFile2] = useState(null);
+  const [showMegerSection, setShowMegerSection] = useState(false);
   const [mergedData, setMergedData] = useState([]);
   const [xmlColumns, setXmlColumns] = useState([]);
   const [columnMappings, setColumnMappings] = useState({});
@@ -769,7 +770,7 @@ const handleMergeAndMap = async () => {
     },[])
   return (
     <div className="max-w-4xl mx-auto p-8 bg-white rounded-lg shadow-xl">
-    <ProgressComponent percent={receivedProducts}/>
+    {/*<ProgressComponent percent={receivedProducts}/>*/}
       <Title level={2} className="text-center text-indigo-600 mb-8">Shopify Product Uploader</Title>
 
       <div className="mb-6 space-y-6">
@@ -783,22 +784,11 @@ const handleMergeAndMap = async () => {
       />
       <Space style={{ marginTop: '10px', width: '100%' }} direction="horizontal" align="center">
   <Tooltip title="Upload XML File 1">
-    <Button
-      type="primary"
-      loading={loading}
-      onClick={uploadFile1}
-      icon={<UploadOutlined />}
-      size="large"
-      style={{
-        borderRadius: '8px',
-        background: 'transparent',
-        border: '2px solid #1890ff',
-        color: '#1890ff',
-        boxShadow: 'none',
-        transition: 'all 0.3s ease',
-      }}
-      iconStyle={{ fontSize: '24px' }}
-    >Save Product File</Button>
+  <Button type="primary" icon={<UploadOutlined />} size="large" loading={loading}
+      onClick={uploadFile1}>
+            Upload
+          </Button>
+
   </Tooltip>
 
   <div>
@@ -841,9 +831,14 @@ const handleMergeAndMap = async () => {
 
     </Col>
   </Row>
+</div>
 
+<Checkbox checked={showMegerSection} onChange={(e) => e.target.checked?setShowMegerSection(true):setShowMegerSection(false)}>
+  Merge Files and Download CSV
+</Checkbox>
+  <div className={!showMegerSection?"hidden":""}>
   <Row justify="space-between" align="middle" gutter={[16, 16]}>
-    <Col span={6}><Text strong>Upload XML File 2:</Text></Col>
+    <Col span={6}><Text strong>Upload Stock File:</Text></Col>
     <Col span={12}>
       <input
         type="file"
@@ -852,7 +847,8 @@ const handleMergeAndMap = async () => {
       />
     </Col>
   </Row>
-</div>
+
+
 
 
 
@@ -912,8 +908,10 @@ const handleMergeAndMap = async () => {
           Total Products to Sync: {mergedData.length}
         </Text>
       )}
+  </div>
     </div>
   );
+  
 }
 
 export default TopBar;

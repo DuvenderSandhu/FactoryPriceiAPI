@@ -1621,7 +1621,7 @@ const RATE_LIMIT_DELAY = 1000; // Delay of 1 second between requests
 
 
 // Schedule a cron job to run every minute
-cron.schedule('0 * * * *', async () => {
+cron.schedule('* * * * *', async () => {
   try {
     // Start of sync
     // // logAction('Starting product sync for all Shopify stores...'); // Log start of sync

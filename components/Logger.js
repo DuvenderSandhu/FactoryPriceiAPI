@@ -6,11 +6,9 @@ const Logger = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false); // State for delete loading
-
-  // Fetch logs from API on component mount
-  useEffect(() => {
-    const fetchLogs = async () => {
+const fetchLogs = async () => {
       try {
+          setLoading(true)
         const response = await axios.get("/api/logs");
         setLogs(response.data.logs);
         setLoading(false);
@@ -23,6 +21,9 @@ const Logger = () => {
         });
       }
     };
+  // Fetch logs from API on component mount
+  useEffect(() => {
+    
 
     fetchLogs();
   }, []);
@@ -96,13 +97,8 @@ const Logger = () => {
         <Button
           type="primary"
           className="w-full bg-green-400 text-black hover:bg-green-500 mt-4"
-          onClick={() => {
-            setLoading(true);
-            setLogs([]);
-            notification.info({
-              message: "Logs Refreshed",
-              description: "Refreshing the logs, please wait.",
-            });
+          onClick={ () => {
+            fetchLogs()
           }}
         >
           Refresh Logs
