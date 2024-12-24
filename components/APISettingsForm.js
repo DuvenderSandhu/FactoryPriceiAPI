@@ -91,7 +91,8 @@ useEffect(() => {
 
   // Function to handle Price Adjustment settings submission
   const handlePriceAdjustmentSubmit = async (values) => {
-    const { priceAdjustmentType, priceAdjustmentAmount, currency } = values;
+    const { priceAdjustmentType, priceAdjustmentAmount } = values;
+    console.log(values)
 
     if (!priceAdjustmentType || priceAdjustmentAmount === undefined) {
       notification.error({
@@ -105,19 +106,18 @@ useEffect(() => {
       // Update the local state with form values for price adjustment
       setPriceAdjustment({
         priceAdjustmentType,
-        priceAdjustmentAmount,
-        currency,
+        priceAdjustmentAmount
       });
+      console.log("Hi")
 
       // API request to update price adjustment and currency on the server
       const response = await fetch(`/api/update-price-adjustment`, {
         method: 'PUT',  // Assuming you are using PUT method for this API
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+        body: {
           priceAdjustmentType,
           priceAdjustmentAmount,
-          currency,
-        }),
+        },
       });
 
       const result = await response.json();
@@ -136,6 +136,7 @@ useEffect(() => {
         });
       }
     } catch (error) {
+      console.log("error",error)
       notification.error({
         message: 'Error',
         description: 'An error occurred while submitting the price adjustment settings.',

@@ -46,6 +46,7 @@
     "koa-bodyparser": "^2.5.0",
     "koa-router": "^8.0.8",
     "koa-session": "^6.1.0",
+    "mysql2": "^3.11.5",
     "next": "^12.1.0",
     "node-cron": "^3.0.3",
     "node-fetch": "^3.3.2",

@@ -289,7 +289,7 @@ const SyncSettings = () => {
                 dataIndex: "photo_link_small",
                 render: (src) => <img src={src} alt="product" style={{ width: 50 }} />,
               },
-              { title: "Product Name", dataIndex: "model" },
+              { title: "Product Name", dataIndex: "title" },
               { title: "Category", dataIndex: "category" },
               { title: "Price", dataIndex: "suggested_price_netto_pln" },
               {

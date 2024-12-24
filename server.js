@@ -6,6 +6,7 @@ const {koaBody}  = require('koa-body');
 const Koa = require('koa');
 const next = require('next');
 const fs = require('fs').promises;
+const { promisify } = require('util');
 const cron = require('node-cron');
 const { XMLParser  } = require('fast-xml-parser')
 const axios= require('axios')
@@ -50,7 +51,7 @@ const  logAction = (message) => {
 app.prepare().then(() => {
   const server = new Koa();
   const router = new Router();
-  server.use(bodyParser({ enableTypes: ['json'] }));
+  // server.use(bodyParser({ enableTypes: ['json'] }));
   
   server.use(session({ secure: true, sameSite: 'none' }, server));
   server.keys = [SHOPIFY_API_SECRET_KEY];
@@ -111,20 +112,35 @@ app.prepare().then(() => {
   const webhook = receiveWebhook({ secret: SHOPIFY_API_SECRET_KEY });
   // const orderWebhook = receiveWebhook({ secret: SHOPIFY_API_SECRET_KEY });
   // Handle incoming webhooks
-  router.post('/webhooks/products/create', webhook, (ctx) => {
+  const rawBodyParser = async (ctx, next) => {
+    ctx.request.rawBody = await new Promise((resolve, reject) => {
+      let data = '';
+      ctx.req.on('data', (chunk) => {
+        data += chunk;
+      });
+      ctx.req.on('end', () => {
+        resolve(data);
+      });
+      ctx.req.on('error', reject);
+    });
+    await next();
+  };
+  
+  router.post('/webhooks/products/create', rawBodyParser, webhook, (ctx) => {
     console.log('Received webhook:', ctx.state.webhook);
   });
+  
 
   server.use(koaBody({
-    multipart: true,  // Enable multipart parsing
-    rawBody: false,   // Disable raw-body parsing
+    multipart: true,  // Enable multipart parsing (for file uploads)
+    json: true,       // Enable JSON body parsing
+    urlencoded: true, // Enable urlencoded body parsing (if you need it)
+    rawBody: false,   // Disable raw body parsing (useful for webhooks if needed)
     formidable: {
-      uploadDir: path.join(__dirname, 'uploads'),
-      keepExtensions: true,
-      maxFileSize: 100 * 1024 * 1024,
+      uploadDir: path.join(__dirname, 'uploads'),  // Directory to save uploaded files
+      keepExtensions: true,  // Keep file extensions
+      maxFileSize: 100 * 1024 * 1024,  // Set max file size (100MB in this case)
     },
-    json: true,
-  urlencoded: true, 
   }));
   router.post('/api/upload', async (ctx) => {
     const { files } = ctx.request;
@@ -154,6 +170,7 @@ app.prepare().then(() => {
   
         // Respond to the client
         ctx.body = {
+          ok:true,
           status:200,
           message: 'File uploaded and renamed successfully',
           file: {
@@ -164,6 +181,7 @@ app.prepare().then(() => {
         };
       });
     } catch (error) {
+      ok:false,
       ctx.status = 500;
       ctx.body = { error: 'Error processing the file' };
       console.error('Error:', error);
@@ -340,9 +358,9 @@ router.get('/getOrder', async (ctx) => {
 });
 
 
-router.get('/api/update-price-adjustment', async (ctx) => {
-  const { priceAdjustmentType, priceAdjustmentAmount } = ctx.query;  // Get query parameters
-
+router.put('/api/update-price-adjustment', async (ctx) => {
+  const { priceAdjustmentType, priceAdjustmentAmount } = ctx.request.body;  // Get query parameters
+  console.log(priceAdjustmentType,priceAdjustmentType)
   // Validate input
   if (!priceAdjustmentType || !priceAdjustmentAmount) {
     ctx.status = 400;
@@ -462,6 +480,7 @@ router.post('/register', async (ctx) => {
           console.log(err);
           reject(new Error('Shop not found in database'));
         } else {
+          console.log(shopID)
           resolve(shopID);
         }
       });
@@ -475,6 +494,7 @@ router.post('/register', async (ctx) => {
 
     // Proceed with saving user data using the retrieved shopID
     try {
+      console.log("Hi i am here")
       const result = await db.SaveUserData(shopID, apiKey, apiSecret, apiUrl);
       ctx.status = 201;
       ctx.body = { message: 'API settings registered successfully', result };
@@ -1063,42 +1083,49 @@ router.get('/api/create-products', async (ctx) => {
   ctx.cancel = false;
 
   // Step 1: Parse XML File
-  const parseXML = async () => {
+  const readXMLFile = async () => {
     console.log("Starting XML Parsing...");
     try {
-      async function readFile() {
-        // Check if the process is cancelled before reading the file
-        if (ctx.cancel) {
-          console.log("Process cancelled before reading file.");
-          return;
-        }
-
-        const text = await fs.readFile('uploads/' + ctx.session.shop + ".xml", 'utf-8');
-        return text;
-      }
-
-      let text = await readFile();
+      // Check if the process is cancelled before reading the file
       if (ctx.cancel) {
-        console.log("Process cancelled after reading file.");
-        return;
+        console.log("Process cancelled before reading file.");
+        return null;
       }
 
-      const data = xml2js(text, { compact: true });
-      return data.offer.products.product;
+      const filePath = 'uploads/' + "botdigit.myshopify.com" + ".xml";
+      console.log("Reading File: ", filePath);
+      const parseXML = async () => {
+        console.log("Welcome Here too");
+        try {
+          async function readFile() {
+            const text = await fs.readFile('uploads/'+ctx.session.shop+".xml", 'utf-8'); // Reads the file content as a string
+            return text; // Output the content of the XML file
+          }
+          
+          let text = await readFile();
+          const data = xml2js(text, { compact: true });
+          // console.log(data.offer.products)
+          return data;
+        } catch (error) {
+          throw new Error('Error parsing XML file');
+        }
+      };
+      // Read file asynchronously
+      const fileContent = await fs.readFile(filePath, 'utf-8');
+      return await parseXML(fileContent); // Parse the XML content asynchronously
 
     } catch (error) {
+      console.error('Error reading or parsing XML file:', error);
       throw new Error('Error parsing XML file');
     }
   };
 
   // Step 2: Merge XML Data and Save to Database
-  const mergeXMLData = async (obj1) => {
+  const mergeXMLData = async (products) => {
     let mergeData = [];
     let unmatchedEans = [];
 
-    // Iterate over products and merge data
-    await Promise.all(obj1.map(async (product) => {
-      // Check if the operation is canceled before processing each product
+    await Promise.all(products.map(async (product) => {
       if (ctx.cancel) {
         console.log("Process cancelled before processing product.");
         return;
@@ -1118,6 +1145,7 @@ router.get('/api/create-products', async (ctx) => {
         const variants = Array.isArray(product.variants.variant)
           ? product.variants.variant
           : [product.variants.variant];
+        
         variants.forEach((variant) => {
           const eanCode = variant.code || variant._attributes?.code;
           if (!eanCode) {
@@ -1137,13 +1165,12 @@ router.get('/api/create-products', async (ctx) => {
           variants: mergedVariants
         };
 
-        // Check if the process is cancelled before saving to the DB
         if (ctx.cancel) {
           console.log("Process cancelled before saving to DB.");
           return;
         }
 
-        // Save to the database
+        // Save the merged product to the database
         const savedProduct = await db.saveProductToDB(mergedProduct);
         console.log("Saved Product:", savedProduct);
 
@@ -1165,21 +1192,29 @@ router.get('/api/create-products', async (ctx) => {
 
   // Step 3: Execute the Process
   try {
-    let data = await parseXML();
+    let xmlData = await readXMLFile();
     if (ctx.cancel) {
       console.log("Operation cancelled during XML parsing.");
       ctx.body = { message: "Process cancelled during XML parsing." };
       return;
     }
+    console.log(xmlData)
 
-    let { mergeData } = await mergeXMLData(data);
+    if (!xmlData ) {
+      console.error("Invalid or empty XML data.");
+      ctx.body = { message: "Invalid XML data." };
+      return;
+    }
+
+    const products = xmlData.offer.products.product;
+    let { mergeData } = await mergeXMLData(products);
+    
     if (ctx.cancel) {
       console.log("Operation cancelled during data merging.");
       ctx.body = { message: "Process cancelled during data merging." };
       return;
     }
 
-    // Return merged data
     ctx.body = { mergeData };
 
   } catch (error) {
@@ -1189,6 +1224,94 @@ router.get('/api/create-products', async (ctx) => {
   }
 });
 
+router.post('/api/createProduct', async (ctx) => {
+  const productData = ctx.request.body;
+
+  // Validate required fields
+  const { title, bodyHtml, vendor, productType, variants } = productData;
+
+  if (!title || !bodyHtml || !vendor || !productType || !variants || variants.length === 0) {
+      ctx.status = 400;
+      ctx.body = { message: 'Title, body_html, vendor, product_type, and variants are required.' };
+      return;
+  }
+
+  // Ensure valid shop information
+  const shopName = ctx.session.shop; // Get shop name from session
+  const accessToken = ctx.session.accessToken; // Get access token from session
+
+  if (!shopName || !accessToken) {
+      ctx.status = 400;
+      ctx.body = { message: 'Shop name and access token are required.' };
+      return;
+  }
+
+  // Prepare the product object for the REST API
+  const product = {
+      product: {
+          title: productData.title,
+          body_html: productData.bodyHtml,
+          vendor: productData.vendor,
+          product_type: productData.productType,
+          tags: productData.tags ? productData.tags.split(',') : [],
+          variants: productData.variants.map(variant => ({
+              option1: variant.option1, // Required
+              price: (variant.price && !isNaN(parseFloat(variant.price))) ? parseFloat(variant.price) :"",
+              sku: variant.sku || null, // Optional SKU
+              requires_shipping: variant.requiresShipping || false, // Optional shipping requirement
+              inventory_management: "shopify",
+              inventory_policy: "continue",
+              inventory_quantity:variant.inventoryQuantity || 0,
+              taxable: variant.taxable || false, // Optional taxable field
+              barcode: variant.barcode || null // Optional barcode
+          })),
+          images: productData.images.map(image => ({
+              src: image.originalSrc // Source URL for the image
+          })),
+          options: productData.options.map(option => ({
+              name: option.name,
+              values: option.values
+          }))
+      }
+  };
+
+  try {
+      const shopifyAPIUrl = `https://${shopName}/admin/api/2023-10/products.json`;
+
+      // Log the request being sent to Shopify for debugging
+      console.log('Sending request to Shopify API:', product);
+
+      // Make the POST request to Shopify's REST API
+      const response = await axios.post(
+          shopifyAPIUrl,
+          product,
+          {
+              headers: {
+                  'X-Shopify-Access-Token': accessToken,
+                  'Content-Type': 'application/json',
+              },
+          }
+      );
+
+      // Log the full response from Shopify for debugging
+      console.log('Shopify API response:', response.data);
+
+      if (response.data.product) {
+          ctx.status = 201;
+          ctx.body = {
+              message: 'Product created successfully.',
+              product: response.data.product,
+          };
+      } else {
+          ctx.status = 400;
+          ctx.body = { message: 'Failed to create product.', response: response.data };
+      }
+  } catch (error) {
+      console.error('Error creating product:', error);
+      ctx.status = 500;
+      ctx.body = { message: 'Error creating product', error: error.message };
+  }
+});
 
 router.get('/api/get-products', async (ctx) => {
   try {
@@ -1334,6 +1457,7 @@ const fetchFactoryPriceData = async (sku) => {
 
 const RunMe = async (shopUrl, accessToken, syncType, selectedCategories, selectedProductIds) => {
   try {
+    console.log(shopUrl, accessToken, syncType, selectedCategories, selectedProductIds)
     const shop_id = shopUrl; // Assuming shopUrl is unique for each shop
     const baseUrl = `https://${shopUrl}/admin/api/2023-10`; // Shopify API base URL
     const headers = {
@@ -1342,7 +1466,7 @@ const RunMe = async (shopUrl, accessToken, syncType, selectedCategories, selecte
     };
 
     // Ensure syncType is valid
-    if (!syncType || !['product_ids', 'categories'].includes(syncType)) {
+    if (!syncType ){
       console.error('Invalid sync type specified');
       await db.insertLog('error', 'Invalid sync type specified', shop_id);
       return;
@@ -1422,14 +1546,17 @@ const syncCategories = async (selectedCategories, baseUrl, headers, shopName) =>
 
       while (true) {
         const productsToSync = await db.getProductsByCategoryFromDB([category], 50, offset);
+        // console.log("productsToSync",productsToSync)
         if (productsToSync.length === 0) break;
 
         for (const product of productsToSync) {
-          await db.insertLog('info', `Starting sync for product: ${product.productID} in category: ${category}`, shop_id);
+          console.log("product.productID",product.productID)
+          await db.insertLog('info', `Starting sync for product: ${product.productID} in category: ${product.category}`, shop_id);
 
           const parsedVariants = typeof product.variants === 'string' ? JSON.parse(product.variants || '[]') : [];
           const parsedImages = typeof product.pictures === 'string' ? JSON.parse(product.pictures || '[]') : [];
-
+          console.log("parsedImages",parsedImages)
+          console.log("parsedVariants",parsedVariants)
           if (!parsedVariants.length) {
             console.warn(`Skipping product ${product.productID} due to no variants.`);
             await db.insertLog('warning', `Skipping product ${product.productID} due to no variants`, shop_id);
@@ -1464,9 +1591,13 @@ const syncCategories = async (selectedCategories, baseUrl, headers, shopName) =>
           // Add all variants to the product payload
           for (const variant of parsedVariants) {
             const data = await fetchFactoryPriceData(variant.code);
+            console.log("product.suggested_price_netto_pln",product.suggested_price_netto_pln)
+            console.log("PriceDetails",PriceDetails)
             const adjustedPrice = PriceDetails.data.priceAdjustmentType === 'percentage'
               ? product.suggested_price_netto_pln * (1 + PriceDetails.data.priceAdjustmentAmount / 100)
-              : product.suggested_price_netto_pln + PriceDetails.data.priceAdjustmentAmount || 10;
+              : parseInt(product.suggested_price_netto_pln) + parseInt(PriceDetails.data.priceAdjustmentAmount) || 10;
+            console.log("adjustedPrice",adjustedPrice)
+            console.log("exchangeRates[selectedCurrency]",exchangeRates[selectedCurrency])
 
             let convertedPrice = adjustedPrice * exchangeRates[selectedCurrency];
 
@@ -1621,7 +1752,7 @@ const RATE_LIMIT_DELAY = 1000; // Delay of 1 second between requests
 
 
 // Schedule a cron job to run every minute
-cron.schedule('* * * * *', async () => {
+cron.schedule('0 * * * *', async () => {
   try {
     // Start of sync
     // // logAction('Starting product sync for all Shopify stores...'); // Log start of sync
@@ -1680,8 +1811,8 @@ cron.schedule('* * * * *', async () => {
           console.log(`Sync settings not found for shop ${shopName}. Skipping sync.`);
           continue;
         }
-
-        const { sync_type, selected_categories, selected_product_ids } = syncSettings;
+        console.log(syncSettings)
+        const { sync_type, selected_categories, selected_product_ids } = syncSettings[0];// Sqlite to Mysql 
         const selectedCategories = selected_categories ? selected_categories.split(',') : [];
         const selectedProductIds = selected_product_ids ? selected_product_ids.split(',') : [];
 

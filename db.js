@@ -1,23 +1,31 @@
 const sqlite3 = require('sqlite3').verbose();
-
+const mysql = require('mysql2')
+require('dotenv').config()
 // Open the SQLite database (or create it if it doesn't exist)
-const db = new sqlite3.Database('./new.db', (err) => {
-  if (err) {
-    console.error('Error opening SQLite database:', err);
-  } else {
-    console.log('SQLite database connected.');
-  }
-});
+// const db = new sqlite3.Database('./new.db', (err) => {
+//   if (err) {
+//     console.error('Error opening SQLite database:', err);
+//   } else {
+//     console.log('SQLite database connected.');
+//   }
+// });
+// console.log("hiere",process.env)
+const db = mysql.createConnection({
+    host: process.env.DB_HOST || "localhost" , // replace with your host name
+    user: process.env.DB_USER || "root" ,           // replace with your username
+    password: process.env.DB_PASS || "" ,           // replace with your password
+    database: process.env.DB_NAME || "factory_price"      // replace with your database name
+  });
 
 // Create a new table for storing shop details (shopName and accessToken)
-db.run(`
+db.query(`
   CREATE TABLE IF NOT EXISTS shop (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    shopName TEXT NOT NULL,
-    accessToken TEXT NOT NULL,
-    priceAdjustmentType TEXT NOT NULL DEFAULT 'fixed', -- Type of price adjustment: 'fixed' or 'percentage'
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    shopName VARCHAR(255) NOT NULL,
+    accessToken VARCHAR(255) NOT NULL,
+    priceAdjustmentType VARCHAR(255) NOT NULL DEFAULT 'fixed', -- Type of price adjustment: 'fixed' or 'percentage'
     priceAdjustmentAmount REAL NOT NULL DEFAULT 0,    -- Amount of price adjustment (could be a fixed value or a percentage)
-    currency TEXT NOT NULL DEFAULT 'USD',
+    currency VARCHAR(255) NOT NULL DEFAULT 'USD',
     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(shopName) -- ensures the shopName is unique
   )
@@ -28,32 +36,32 @@ db.run(`
     console.log('shop table created or already exists.');
   }
 });
-db.run(`
+db.query(`
   CREATE TABLE IF NOT EXISTS user_logs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    level TEXT NOT NULL,                -- Log level (e.g., 'info', 'error')
-    message TEXT NOT NULL,              -- The actual log message
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    level VARCHAR(255) NOT NULL,                -- Log level (e.g., 'info', 'error')
+    message VARCHAR(255) NOT NULL,              -- The actual log message
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, -- Timestamp of the log
-    shop_id TEXT NOT NULL,              -- Unique identifier for the shop
-    sku TEXT DEFAULT NULL,              -- Optional SKU for filtering by product
-    error_message TEXT DEFAULT NULL     -- Optional error message for specific errors
-);
-  )
+    shop_id VARCHAR(255) NOT NULL,              -- Unique identifier for the shop
+    sku VARCHAR(255) DEFAULT NULL,              -- Optional SKU for filtering by product
+    error_message VARCHAR(255) DEFAULT NULL     -- Optional error message for specific errors
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 `, (err) => {
   if (err) {
-    console.error('Error creating shop table:', err);
+    console.error('Error creating user_logs table:', err);
   } else {
-    console.log('shop table created or already exists.');
+    console.log('user_logs table created or already exists.');
   }
 });
 
-db.run(`
+
+db.query(`
   CREATE TABLE IF NOT EXISTS shop_details (
-    id INTEGER PRIMARY KEY AUTOINCREMENT ,
-    shopID TEXT NOT NULL ,
-    apikey TEXT NOT NULL,
-    apiSecret TEXT NOT NULL,
-    apiurl TEXT NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    shopID VARCHAR(255) NOT NULL ,
+    apikey VARCHAR(255) NOT NULL,
+    apiSecret VARCHAR(255) NOT NULL,
+    apiurl VARCHAR(255) NOT NULL,
     syncProducts BOOLEAN DEFAULT FALSE,
     syncOrders BOOLEAN DEFAULT FALSE,
     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -66,11 +74,11 @@ db.run(`
   }
 });
 
-db.run(`
+db.query(`
   CREATE TABLE IF NOT EXISTS shop_sync_settings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INT AUTO_INCREMENT PRIMARY KEY,
     shop_id INTEGER NOT NULL, -- Foreign key linking to the shop table
-    sync_type TEXT NOT NULL CHECK(sync_type IN ('all', 'categories', 'product_ids')), -- Sync type: 'all', 'categories', or 'product_ids'
+    sync_type VARCHAR(255) NOT NULL CHECK(sync_type IN ('all', 'categories', 'product_ids')), -- Sync type: 'all', 'categories', or 'product_ids'
     selected_categories TEXT, -- Stores a comma-separated list of category IDs (if sync_type is 'categories')
     selected_product_ids TEXT, -- Stores a comma-separated list of product IDs (if sync_type is 'product_ids')
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -84,9 +92,9 @@ db.run(`
     console.log('shop_sync_settings table created or already exists.');
   }
 });
-db.run(`CREATE TABLE IF NOT EXISTS products (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  productID TEXT NOT NULL UNIQUE,
+db.query(`CREATE TABLE IF NOT EXISTS products (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  productID VARCHAR(255) NOT NULL UNIQUE,
   ModelID TEXT,
   model TEXT,
   color TEXT,
@@ -104,15 +112,15 @@ db.run(`CREATE TABLE IF NOT EXISTS products (
   sizechart TEXT,
   variants TEXT,
   pictures  TEXT,
-  title TEXT DEFAULT "title"
+  title VARCHAR(255) DEFAULT "title"
 );
 `);
 
-db.run(`
+db.query(`
   CREATE TABLE IF NOT EXISTS orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    shopify_order_no TEXT NOT NULL UNIQUE,
-    factory_price_order_no TEXT NOT NULL UNIQUE,
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    shopify_order_no VARCHAR(255) NOT NULL UNIQUE,
+    factory_price_order_no VARCHAR(255) NOT NULL UNIQUE,
     cancelled INTEGER DEFAULT 0,  -- Boolean (0 for false, 1 for true)
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
   );
@@ -124,13 +132,13 @@ db.run(`
   }
 });
 // Create the shop_details table if it doesn't exist
-db.run(`
+db.query(`
   CREATE TABLE IF NOT EXISTS shop_api_settings (
-    id INTEGER PRIMARY KEY AUTOINCREMENT ,
-    shopID TEXT NOT NULL ,
-    apikey TEXT NOT NULL,
-    apiSecret TEXT NOT NULL,
-    apiurl TEXT NOT NULL,
+    id INT AUTO_INCREMENT PRIMARY KEY ,
+    shopID VARCHAR(255) NOT NULL ,
+    apikey VARCHAR(255) NOT NULL,
+    apiSecret VARCHAR(255) NOT NULL,
+    apiurl VARCHAR(255) NOT NULL,
     syncProducts BOOLEAN DEFAULT FALSE,
     syncOrders BOOLEAN DEFAULT FALSE,
     createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -143,41 +151,44 @@ db.run(`
   }
 });
 
+
+
+
 // Function to insert or update shop details
 // Update the upsertShopDetails function to handle accessToken
 const upsertShopDetails = (shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders, callback) => {
   // Step 1: Clean up any duplicates if they exist
   db.serialize(() => {
     // First, check for any duplicate shopID records
-    db.run("BEGIN TRANSACTION"); // Start a transaction for atomicity
+    db.query("START TRANSACTION"); // Start a transaction for atomicity
     console.log("deleting")
     // Remove duplicate rows (keeping the first row for each shopID)
-    db.run(`
+    db.query(`
       DELETE FROM shop_details WHERE rowid NOT IN (
         SELECT MIN(rowid) FROM shop_details GROUP BY shopID
       );
     `, function(err) {
       if (err) {
         console.error('Error cleaning up duplicates:', err);
-        db.run("ROLLBACK"); // Rollback if cleanup fails
+        db.query("ROLLBACK"); // Rollback if cleanup fails
         return callback(err);
       }
       console.log("Deleted")
       // Step 2: Ensure the table schema has UNIQUE constraint on shopID (we recreate the table if needed)
-      db.get('PRAGMA foreign_keys;', (err, result) => {
+      db.query('PRAGMA foreign_keys;', (err, result) => {
         if (err) {
           console.error('Error checking foreign keys:', err);
-          db.run("ROLLBACK");
+          db.query("ROLLBACK");
           return callback(err);
         }
         console.log("Step 2 ")
         // Step 3: Check if the `shop_details` table already has the UNIQUE constraint on shopID
-        db.get(`
+        db.query(`
           PRAGMA table_info(shop_details);
         `, (err, columns) => {
           if (err) {
             console.error('Error fetching table info:', err);
-            db.run("ROLLBACK");
+            db.query("ROLLBACK");
             return callback(err);
           }
 
@@ -185,13 +196,13 @@ const upsertShopDetails = (shopID, apikey, apiSecret, apiurl, syncProducts, sync
           const hasUniqueConstraint = columns.some(col => col.name === 'shopID' && col.unique);
           if (!hasUniqueConstraint) {
             // Recreate table with UNIQUE constraint on shopID
-            db.run(`
+            db.query(`
               CREATE TABLE shop_details_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                shopID TEXT NOT NULL UNIQUE,
-                apikey TEXT NOT NULL,
-                apiSecret TEXT NOT NULL,
-                apiurl TEXT NOT NULL,
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                shopID VARCHAR(255) NOT NULL UNIQUE,
+                apikey VARCHAR(255) NOT NULL,
+                apiSecret VARCHAR(255) NOT NULL,
+                apiurl VARCHAR(255) NOT NULL,
                 syncProducts BOOLEAN DEFAULT FALSE,
                 syncOrders BOOLEAN DEFAULT FALSE,
                 createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -199,35 +210,35 @@ const upsertShopDetails = (shopID, apikey, apiSecret, apiurl, syncProducts, sync
             `, (err) => {
               if (err) {
                 console.error('Error creating new table with UNIQUE constraint:', err);
-                db.run("ROLLBACK");
+                db.query("ROLLBACK");
                 return callback(err);
               }
               console.log("Step 3 ")
 
               // Copy the data from the old table to the new one
-              db.run(`
+              db.query(`
                 INSERT INTO shop_details_new (id, shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders, createdAt)
                 SELECT id, shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders, createdAt
                 FROM shop_details;
               `, function(err) {
                 if (err) {
                   console.error('Error copying data to new table:', err);
-                  db.run("ROLLBACK");
+                  db.query("ROLLBACK");
                   return callback(err);
                 }
 
                 // Drop the old table and rename the new one
-                db.run('DROP TABLE shop_details', (err) => {
+                db.query('DROP TABLE shop_details', (err) => {
                   if (err) {
                     console.error('Error dropping old table:', err);
-                    db.run("ROLLBACK");
+                    db.query("ROLLBACK");
                     return callback(err);
                   }
 
-                  db.run('ALTER TABLE shop_details_new RENAME TO shop_details', (err) => {
+                  db.query('ALTER TABLE shop_details_new RENAME TO shop_details', (err) => {
                     if (err) {
                       console.error('Error renaming new table:', err);
-                      db.run("ROLLBACK");
+                      db.query("ROLLBACK");
                       return callback(err);
                     }
                   });
@@ -240,27 +251,27 @@ const upsertShopDetails = (shopID, apikey, apiSecret, apiurl, syncProducts, sync
     });
 
     // Step 4: Perform the upsert (INSERT or UPDATE based on existing shopID)
-    db.get('SELECT * FROM shop_details WHERE shopID = ?', [shopID], (err, row) => {
+    db.query('SELECT * FROM shop_details WHERE shopID = ?', [shopID], (err, row) => {
       if (err) {
         console.error('Error checking shop details:', err);
-        db.run("ROLLBACK"); // Rollback on error
+        db.query("ROLLBACK"); // Rollback on error
         return callback(err);
       }
       console.log("row",row)
       if (row) {
         // If the shop exists, perform an update
-        db.run(`
+        db.query(`
           UPDATE shop_details
           SET apikey = ?, apiSecret = ?, apiurl = ?, syncProducts = ?, syncOrders = ?
           WHERE shopID = ?
         `, [apikey, apiSecret, apiurl, syncProducts, syncOrders, shopID], function(err) {
           if (err) {
             console.error('Error updating shop details:', err);
-            db.run("ROLLBACK"); // Rollback on error
+            db.query("ROLLBACK"); // Rollback on error
             return callback(err);
           }
           // Commit the transaction after updating
-          db.run("COMMIT");
+          db.query("COMMIT");
           console.log("OK")
           callback(null, {
             id: row.id, // Use the existing row ID
@@ -274,17 +285,17 @@ const upsertShopDetails = (shopID, apikey, apiSecret, apiurl, syncProducts, sync
         });
       } else {
         // If the shop doesn't exist, perform an insert
-        db.run(`
+        db.query(`
           INSERT INTO shop_details (shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders)
           VALUES (?, ?, ?, ?, ?, ?)
         `, [shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders], function(err) {
           if (err) {
             console.error('Error inserting shop details:', err);
-            db.run("ROLLBACK"); // Rollback on error
+            db.query("ROLLBACK"); // Rollback on error
             return callback(err);
           }
           // Commit the transaction after inserting
-          db.run("COMMIT");
+          db.query("COMMIT");
 
           callback(null, {
             id: this.lastID, // ID of the newly inserted row
@@ -315,7 +326,7 @@ const saveProductToDB = async (productData) => {
     });
     // Insert the product into the database
     const result = await new Promise((resolve, reject) => {
-      db.run(`
+      db.query(`
         INSERT INTO products (
           productID, ModelID, model, color, gender, category, producer,
           suggested_price_netto_pln, wholesale_price_netto_pln, vat,
@@ -372,7 +383,7 @@ function insertLog(level, message, shop_id, sku = null, error_message = null) {
   
  
 
-  db.run(insertQuery, [level, message, timestamp, shop_id, sku, error_message], function(err) {
+  db.query(insertQuery, [level, message, timestamp, shop_id, sku, error_message], function(err) {
       if (err) {
           console.error('Error inserting log', err);
       } else {
@@ -391,7 +402,7 @@ function changeCurrency(shopId, newCurrency) {
     `;
 
     // Run the query with the new currency and shop ID
-    db.run(query, [newCurrency, shopId], function (err) {
+    db.query(query, [newCurrency, shopId], function (err) {
       if (err) {
         // Reject the promise if an error occurs
         reject('Error updating currency: ' + err.message);
@@ -416,7 +427,7 @@ function getLogsByShop(shopName, limit = 10) {
       LIMIT ?;
     `;
 
-    db.all(query, [shopName, limit], (err, rows) => {
+    db.query(query, [shopName, limit], (err, rows) => {
       if (err) {
         console.error('Error fetching logs', err);
         reject(err);  // Reject the promise with the error
@@ -442,7 +453,7 @@ function getCurrencyByShopName(shopId) {
     `;
     
     // Execute the query
-    db.get(query, [shopId], (err, row) => {
+    db.query(query, [shopId], (err, row) => {
       if (err) {
         return reject('Error fetching currency: ' + err.message); // Handle error
       }
@@ -451,7 +462,8 @@ function getCurrencyByShopName(shopId) {
       }
 
       // Return the selected currency
-      resolve(row.currency);
+      console.log("row",row[0])
+      resolve(row[0].currency);
     });
   });
 }
@@ -462,7 +474,7 @@ function deleteLogsByShop(shopName) {
   return new Promise((resolve, reject) => {
     const query = `DELETE FROM user_logs WHERE shop_id = ?`;
 
-    db.run(query, [shopName], function (err) {
+    db.query(query, [shopName], function (err) {
       if (err) {
         reject(err);
       } else {
@@ -478,7 +490,7 @@ const getAllProductsFromDB = async (limit = 100, offset = 0) => {
     // Query to retrieve all products with pagination (limit and offset)
     const products = await new Promise((resolve, reject) => {
       const query = `SELECT * FROM products LIMIT ? OFFSET ?`;
-      db.all(query, [limit, offset], (err, rows) => {
+      db.query(query, [limit, offset], (err, rows) => {
         if (err) {
           console.error('Error retrieving products from DB', err);
           return reject(err);  // Reject the promise if there's an error
@@ -504,7 +516,7 @@ const getProductsByCategoryFromDB = async (categories, limit, offset) => {
       const placeholders = categories.map(() => '?').join(', ');  // Create a list of placeholders for categories
       const query = `SELECT * FROM products WHERE category IN (${placeholders}) LIMIT ? OFFSET ?`;
 
-      db.all(query, [...categories, limit, offset], (err, rows) => {
+      db.query(query, [...categories, limit, offset], (err, rows) => {
         if (err) {
           console.error('Error retrieving products by category from DB', err);
           return reject(err);  // Reject the promise if there's an error
@@ -527,7 +539,7 @@ const getProductsByIdsFromDB = async (productIds, limit = 100, offset = 0) => {
     const query = `SELECT * FROM products WHERE id IN (${placeholders}) LIMIT ? OFFSET ?`;
 
     const products = await new Promise((resolve, reject) => {
-      db.all(query, [...productIds, limit, offset], (err, rows) => {
+      db.query(query, [...productIds, limit, offset], (err, rows) => {
         if (err) {
           console.error('Error retrieving products by ID from DB', err);
           return reject(err);
@@ -553,7 +565,7 @@ const getProductsByProductIDsFromDB = async (productIDs) => {
       productIDs.map(async (productID) => {
         const product = await new Promise((resolve, reject) => {
           const query = `SELECT * FROM products WHERE id = ?`;
-          db.get(query, [productID], (err, row) => {
+          db.query(query, [productID], (err, row) => {
             if (err) {
               console.error(`Error retrieving product with productID ${productID} from DB`, err);
               console.log("row",row)
@@ -579,7 +591,7 @@ const getProductByID = async (productID) => {
     // Returning a single product based on the productID
     const product = await new Promise((resolve, reject) => {
       const query = `SELECT * FROM products WHERE id = ?`;
-      db.get(query, [productID], (err, row) => {
+      db.query(query, [productID], (err, row) => {
         if (err) {
           console.error(`Error retrieving product with productID ${productID} from DB`, err);
           return reject(err);
@@ -604,7 +616,7 @@ const countProducts = async () => {
   try {
     const count = await new Promise((resolve, reject) => {
       // SQL query to count the total number of products
-      db.get('SELECT COUNT(*) AS total FROM products', (err, row) => {
+      db.query('SELECT COUNT(*) AS total FROM products', (err, row) => {
         if (err) {
           console.error('Error counting products:', err);
           return reject(err);  // Reject the promise if there's an error
@@ -639,7 +651,7 @@ const countProducts = async () => {
 
 // Function to fetch all shops (optional, can be useful for debugging)
 const getAllShopDetails = (callback) => {
-  db.all(`SELECT * FROM shop_details`, [], (err, rows) => {
+  db.query(`SELECT * FROM shop_details`, [], (err, rows) => {
     if (err) {
       console.error('Error fetching all shop details:', err);
       return callback(err);
@@ -652,7 +664,7 @@ const getAllShopDetails = (callback) => {
 async function SaveShop(shop, accessToken) {
   try {
     // First, try to insert the shop if it doesn't exist
-    db.run(
+    db.query(
       `INSERT OR IGNORE INTO shop (shopName, accessToken) VALUES (?, ?)`,
       [shop, accessToken],
       function (err) {
@@ -663,7 +675,7 @@ async function SaveShop(shop, accessToken) {
 
         if (this.changes === 0) {
           // Shop already exists, so let's update the accessToken
-          db.run(
+          db.query(
             `UPDATE shop SET accessToken = ? WHERE shopName = ?`,
             [accessToken, shop],
             function (err) {
@@ -691,7 +703,7 @@ async function SaveShop(shop, accessToken) {
 
 async function SaveUserData(shopID, apiKey, apiSecret, apiUrl) {
   return new Promise((resolve, reject) => {
-    db.run(`
+    db.query(`
       INSERT INTO shop_details (shopID, apiKey, apiSecret, apiUrl)
       VALUES (?, ?, ?, ?)`,
       [shopID, apiKey, apiSecret, apiUrl],
@@ -710,23 +722,25 @@ async function SaveUserData(shopID, apiKey, apiSecret, apiUrl) {
 // Function to get shopID by shopName
 
 const getShopIDByShopName = (shopName, callback) => {
-  db.get('SELECT id FROM shop WHERE shopName = ?', [shopName], (err, row) => {
+  let data= db.query('SELECT id FROM shop WHERE shopName = ?', [shopName], (err, row) => {
     if (err) {
       console.error('Error querying shop table:', err);
       return callback(err);
     }
-
+    
     if (row) {
       console.log('Shop found:', row); // Log found shop data
-      callback(null, row.id); // Return the shopID
+      callback(null, row[0].id || row.id); // Sqlite and MySQL return different objects
     } else {
       console.log('No shop found with name:', shopName);
       callback(new Error('Shop not found'), null); // Shop not found
     }
   });
+
+
 };
 const getShopAPIDataByShopID = (shopID, callback) => {
-  db.all(
+  db.query(
     `SELECT * FROM shop_details WHERE shopID = ?`,
     [shopID],
     (err, rows) => {
@@ -764,7 +778,7 @@ const updatePriceAdjustment = (shopName, newType, newAmount) => {
       WHERE shopName = ?
     `;
     
-    db.run(query, [newType, newAmount, shopName], function(err) {
+    db.query(query, [newType, newAmount, shopName], function(err) {
       if (err) {
         return reject(new Error(`Error updating price adjustment: ${err.message}`));
       }
@@ -792,12 +806,12 @@ const getPriceAdjustmentByShopName = async (shopName) => {
       `;
 
       // Execute the query using the provided db instance
-      db.get(query, [normalizedShopName], (err, row) => {
+      db.query(query, [normalizedShopName], (err, row) => {
         if (err) {
           console.error('Error executing query:', err);
           reject(new Error('Error fetching price adjustment data.'));
         } else if (row) {
-          resolve({ data: row });
+          resolve({ data: row[0] });
         } else {
           resolve({ data: null });  // No data found
         }
@@ -813,7 +827,7 @@ const addOrder = (shopifyOrderNo, factoryPriceOrderNo, cancelled =0) => {
   return new Promise((resolve, reject) => {
     const query = `INSERT INTO orders (shopify_order_no, factory_price_order_no, cancelled) VALUES (?, ?, ?)`;
 
-    db.run(query, [shopifyOrderNo, factoryPriceOrderNo, cancelled], function (err) {
+    db.query(query, [shopifyOrderNo, factoryPriceOrderNo, cancelled], function (err) {
       if (err) {
         if (err.code === 'SQLITE_CONSTRAINT') {
           // Handle unique constraint violation
@@ -836,7 +850,7 @@ const updateOrderCancellationStatus = (shopifyOrderNo, cancelled) => {
   return new Promise((resolve, reject) => {
     const query = `UPDATE orders SET cancelled = ? WHERE shopify_order_no = ? `;
 
-    db.run(query, [cancelled, shopifyOrderNo], function (err) {
+    db.query(query, [cancelled, shopifyOrderNo], function (err) {
       if (err) {
         console.error('Error updating order cancellation status:', err);
         reject(err);
@@ -849,7 +863,7 @@ const updateOrderCancellationStatus = (shopifyOrderNo, cancelled) => {
 
 
 // const getShopAPIDataByShopID = (shopID, callback) => {
-//   db.get('SELECT apiKey, apiSecret, apiUrl FROM shop_details WHERE shopID = ?', [shopID], (err, row) => {
+//   db.query('SELECT apiKey, apiSecret, apiUrl FROM shop_details WHERE shopID = ?', [shopID], (err, row) => {
 //     if (err) {
 //       console.error('Error querying shop_details table:', err);
 //       return callback(err);
@@ -870,22 +884,22 @@ const updateOrderCancellationStatus = (shopifyOrderNo, cancelled) => {
 const deleteShopAPIData = (id) => {
   return new Promise((resolve, reject) => {
     // Start a transaction for atomicity
-    db.run("BEGIN TRANSACTION", (err) => {
+    db.query("START TRANSACTION", (err) => {
       if (err) {
         console.error("Error starting transaction:", err);
         return reject(new Error('Error starting transaction'));
       }
 
       // Perform the deletion based on the id
-      db.run(`DELETE FROM shop_details WHERE id = ?`, [id], function (err) {
+      db.query(`DELETE FROM shop_details WHERE id = ?`, [id], function (err) {
         if (err) {
           console.error('Error deleting API data:', err);
-          db.run("ROLLBACK"); // Rollback if deletion fails
+          db.query("ROLLBACK"); // Rollback if deletion fails
           return reject(new Error('Error deleting API data'));
         }
 
         // Commit the transaction after successful deletion
-        db.run("COMMIT", (err) => {
+        db.query("COMMIT", (err) => {
           if (err) {
             console.error('Error committing transaction:', err);
             return reject(new Error('Error committing transaction'));
@@ -903,7 +917,7 @@ const deleteShopAPIData = (id) => {
 function updateImportType(shopName, importType, callback) {
   const importTypeValue = JSON.stringify(importType); // Convert importType to JSON string if it's an array
 
-  db.run(`
+  db.query(`
     UPDATE shop
     SET importType = ?
     WHERE shopName = ?
@@ -919,7 +933,7 @@ function updateImportType(shopName, importType, callback) {
 }
 
 function getImportType(shopName, callback) {
-  db.get('SELECT importType FROM shop WHERE shopName = ?', [shopName], (err, row) => {
+  db.query('SELECT importType FROM shop WHERE shopName = ?', [shopName], (err, row) => {
     if (err) {
       console.error('Error fetching importType:', err);
       callback(err, null);
@@ -944,13 +958,13 @@ const upsertShopSyncSetting = (shopId, syncType, selectedCategories, selectedPro
     const checkQuery = `SELECT * FROM shop_sync_settings WHERE shop_id = ?`;
     console.log('Running check query:', checkQuery);
 
-    db.get(checkQuery, [shopId], (err, existingSetting) => {
+    db.query(checkQuery, [shopId], (err, existingSetting) => {
       if (err) {
         console.error('Error checking existing setting:', err);
         return reject(new Error(`Error checking shop sync setting: ${err.message}`));
       }
-
-      if (existingSetting) {
+      // console.log('Existing setting:', existingSetting);
+      if (existingSetting.length > 0) {
         // Step 2: If setting exists, update it
         console.log('Found existing setting. Updating...', existingSetting);
 
@@ -964,7 +978,7 @@ const upsertShopSyncSetting = (shopId, syncType, selectedCategories, selectedPro
         `;
         console.log('Running update query:', updateQuery);
 
-        db.run(
+        db.query(
           updateQuery,
           [syncType, selectedCategories || null, selectedProductIds || null, currentTime, shopId],
           function (updateErr) {
@@ -986,7 +1000,7 @@ const upsertShopSyncSetting = (shopId, syncType, selectedCategories, selectedPro
         `;
         console.log('Running insert query:', insertQuery);
 
-        db.run(
+        db.query(
           insertQuery,
           [
             shopId,
@@ -1016,7 +1030,7 @@ function getShopSyncSetting( shopId) {
     // Query to retrieve the sync setting for a given shop_id
     const query = `SELECT * FROM shop_sync_settings WHERE shop_id = ?`;
 
-    db.get(query, [shopId], (err, row) => {
+    db.query(query, [shopId], (err, row) => {
       if (err) {
         return reject(new Error(`Error retrieving shop sync setting: ${err.message}`));
       }
@@ -1036,7 +1050,7 @@ async function getAllShops() {
   return new Promise((resolve, reject) => {
     const query = 'SELECT shopName, accessToken FROM shop';  // SQL query to fetch shopName and accessToken
 
-    db.all(query, [], (err, rows) => {
+    db.query(query, [], (err, rows) => {
       if (err) {
         reject(err);  // Reject the promise on error
       } else {
@@ -1051,7 +1065,7 @@ const getCategories = () => {
   return new Promise((resolve, reject) => {
     const query = `SELECT DISTINCT category FROM products`;
     
-    db.all(query, [], (err, rows) => {
+    db.query(query, [], (err, rows) => {
       if (err) {
         reject('Failed to fetch categories');
       } else {

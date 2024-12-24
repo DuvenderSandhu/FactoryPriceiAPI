@@ -11,7 +11,7 @@ const ProductDetails = ({ product }) => {
   return (
     <div className="product-details">
       {/* Product Title */}
-      <Title level={4}>{product.model || 'Unnamed Product'}</Title>
+      <Title level={4}>{product.title || 'Unnamed Product'}</Title>
 
       {/* Product Images */}
       <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>

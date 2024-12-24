@@ -792,7 +792,7 @@ const handleMergeAndMap = async () => {
   </Tooltip>
 
   <div>
-    {/* <Tooltip title="Create Products from File">
+    <Tooltip title="Create Products from File">
       <Button
         type="primary"
         onClick={handleDBProducts}  // Trigger the handleDBProducts function
@@ -811,7 +811,7 @@ const handleMergeAndMap = async () => {
       >
         Create Product from XML
       </Button>
-    </Tooltip> */}
+    </Tooltip>
 {/* 
     <Button
       type="default"
