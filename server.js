@@ -63,11 +63,22 @@ app.prepare().then(() => {
       scopes: ['read_products', 'write_products','write_inventory','read_inventory','read_orders', 'write_orders','read_customers','write_customers'],
       async afterAuth(ctx) {
         const { shop, accessToken } = ctx.session;
-        console.log(shop)
+        console.log("shop",shop)
         console.log(accessToken)
         
-        await db.SaveShop(shop,accessToken)
-        let shopID= await db.getShopIDByShopName(shop)
+        let data= await db.SaveShop(shop,accessToken)
+        console.log("data",data)
+        const shopID = await new Promise((resolve, reject) => {
+          db.getShopIDByShopName(ctx.session.shop, (err, shopID) => {
+            if (err) {
+              console.error('Error fetching shop ID:', err);
+              reject(new Error('Shop not found in database'));
+            } else {
+              resolve(shopID);
+            }
+          });
+        });
+        console.log("shopID",shopID)
         // Save the shop and accessToken into the database (we'll upsert the shop)
         try {
           await upsertShopDetails(shopID, '', '', true, true, accessToken, (err, shopDetails) => {
@@ -1847,6 +1858,8 @@ cron.schedule('0 * * * *', async () => {
     console.log(`Error in cron job: ${error.message || error}`);
   }
 });
+
+
 
 
 // In your Koa router or Express route, handle the DELETE request

@@ -114,10 +114,10 @@ useEffect(() => {
       const response = await fetch(`/api/update-price-adjustment`, {
         method: 'PUT',  // Assuming you are using PUT method for this API
         headers: { 'Content-Type': 'application/json' },
-        body: {
+        body: JSON.stringify({
           priceAdjustmentType,
           priceAdjustmentAmount,
-        },
+        }),
       });
 
       const result = await response.json();

@@ -157,157 +157,82 @@ db.query(`
 // Function to insert or update shop details
 // Update the upsertShopDetails function to handle accessToken
 const upsertShopDetails = (shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders, callback) => {
-  // Step 1: Clean up any duplicates if they exist
-  db.serialize(() => {
-    // First, check for any duplicate shopID records
-    db.query("START TRANSACTION"); // Start a transaction for atomicity
-    console.log("deleting")
-    // Remove duplicate rows (keeping the first row for each shopID)
-    db.query(`
-      DELETE FROM shop_details WHERE rowid NOT IN (
-        SELECT MIN(rowid) FROM shop_details GROUP BY shopID
+  db.beginTransaction((err) => {
+    if (err) {
+      console.error('Error starting transaction:', err);
+      return callback(err);
+    }
+
+    // Step 1: Clean up duplicate rows (keep only the first row per shopID)
+    const deleteDuplicatesQuery = `
+      DELETE FROM shop_details
+      WHERE id NOT IN (
+        SELECT id FROM (
+          SELECT MIN(id) AS id FROM shop_details GROUP BY shopID
+        ) AS subquery
       );
-    `, function(err) {
+    `;
+    db.query(deleteDuplicatesQuery, (err) => {
       if (err) {
         console.error('Error cleaning up duplicates:', err);
-        db.query("ROLLBACK"); // Rollback if cleanup fails
-        return callback(err);
+        return db.rollback(() => callback(err));
       }
-      console.log("Deleted")
-      // Step 2: Ensure the table schema has UNIQUE constraint on shopID (we recreate the table if needed)
-      db.query('PRAGMA foreign_keys;', (err, result) => {
-        if (err) {
-          console.error('Error checking foreign keys:', err);
-          db.query("ROLLBACK");
-          return callback(err);
+
+      console.log('Duplicates cleaned.');
+
+      // Step 2: Add UNIQUE constraint to shopID if it doesn't exist
+      const alterTableQuery = `
+        ALTER TABLE shop_details
+        ADD UNIQUE (shopID);
+      `;
+      db.query(alterTableQuery, (err) => {
+        if (err && err.code !== 'ER_DUP_KEYNAME') {
+          console.error('Error adding UNIQUE constraint:', err);
+          return db.rollback(() => callback(err));
         }
-        console.log("Step 2 ")
-        // Step 3: Check if the `shop_details` table already has the UNIQUE constraint on shopID
-        db.query(`
-          PRAGMA table_info(shop_details);
-        `, (err, columns) => {
-          if (err) {
-            console.error('Error fetching table info:', err);
-            db.query("ROLLBACK");
-            return callback(err);
-          }
 
-          // If no UNIQUE constraint exists, we need to create the table again
-          const hasUniqueConstraint = columns.some(col => col.name === 'shopID' && col.unique);
-          if (!hasUniqueConstraint) {
-            // Recreate table with UNIQUE constraint on shopID
-            db.query(`
-              CREATE TABLE shop_details_new (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                shopID VARCHAR(255) NOT NULL UNIQUE,
-                apikey VARCHAR(255) NOT NULL,
-                apiSecret VARCHAR(255) NOT NULL,
-                apiurl VARCHAR(255) NOT NULL,
-                syncProducts BOOLEAN DEFAULT FALSE,
-                syncOrders BOOLEAN DEFAULT FALSE,
-                createdAt TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-              );
-            `, (err) => {
+        console.log('UNIQUE constraint ensured.');
+
+        // Step 3: Perform UPSERT (INSERT or UPDATE based on shopID)
+        const upsertQuery = `
+          INSERT INTO shop_details (shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders)
+          VALUES (?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            apikey = VALUES(apikey),
+            apiSecret = VALUES(apiSecret),
+            apiurl = VALUES(apiurl),
+            syncProducts = VALUES(syncProducts),
+            syncOrders = VALUES(syncOrders);
+        `;
+        db.query(
+          upsertQuery,
+          [shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders],
+          (err, result) => {
+            if (err) {
+              console.error('Error performing upsert:', err);
+              return db.rollback(() => callback(err));
+            }
+
+            db.commit((err) => {
               if (err) {
-                console.error('Error creating new table with UNIQUE constraint:', err);
-                db.query("ROLLBACK");
-                return callback(err);
+                console.error('Error committing transaction:', err);
+                return db.rollback(() => callback(err));
               }
-              console.log("Step 3 ")
 
-              // Copy the data from the old table to the new one
-              db.query(`
-                INSERT INTO shop_details_new (id, shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders, createdAt)
-                SELECT id, shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders, createdAt
-                FROM shop_details;
-              `, function(err) {
-                if (err) {
-                  console.error('Error copying data to new table:', err);
-                  db.query("ROLLBACK");
-                  return callback(err);
-                }
-
-                // Drop the old table and rename the new one
-                db.query('DROP TABLE shop_details', (err) => {
-                  if (err) {
-                    console.error('Error dropping old table:', err);
-                    db.query("ROLLBACK");
-                    return callback(err);
-                  }
-
-                  db.query('ALTER TABLE shop_details_new RENAME TO shop_details', (err) => {
-                    if (err) {
-                      console.error('Error renaming new table:', err);
-                      db.query("ROLLBACK");
-                      return callback(err);
-                    }
-                  });
-                });
+              console.log('Transaction committed.');
+              callback(null, {
+                id: result.insertId || shopID,
+                shopID,
+                apikey,
+                apiSecret,
+                apiurl,
+                syncProducts,
+                syncOrders,
               });
             });
           }
-        });
+        );
       });
-    });
-
-    // Step 4: Perform the upsert (INSERT or UPDATE based on existing shopID)
-    db.query('SELECT * FROM shop_details WHERE shopID = ?', [shopID], (err, row) => {
-      if (err) {
-        console.error('Error checking shop details:', err);
-        db.query("ROLLBACK"); // Rollback on error
-        return callback(err);
-      }
-      console.log("row",row)
-      if (row) {
-        // If the shop exists, perform an update
-        db.query(`
-          UPDATE shop_details
-          SET apikey = ?, apiSecret = ?, apiurl = ?, syncProducts = ?, syncOrders = ?
-          WHERE shopID = ?
-        `, [apikey, apiSecret, apiurl, syncProducts, syncOrders, shopID], function(err) {
-          if (err) {
-            console.error('Error updating shop details:', err);
-            db.query("ROLLBACK"); // Rollback on error
-            return callback(err);
-          }
-          // Commit the transaction after updating
-          db.query("COMMIT");
-          console.log("OK")
-          callback(null, {
-            id: row.id, // Use the existing row ID
-            shopID,
-            apikey,
-            apiSecret,
-            apiurl,
-            syncProducts,
-            syncOrders
-          });
-        });
-      } else {
-        // If the shop doesn't exist, perform an insert
-        db.query(`
-          INSERT INTO shop_details (shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders)
-          VALUES (?, ?, ?, ?, ?, ?)
-        `, [shopID, apikey, apiSecret, apiurl, syncProducts, syncOrders], function(err) {
-          if (err) {
-            console.error('Error inserting shop details:', err);
-            db.query("ROLLBACK"); // Rollback on error
-            return callback(err);
-          }
-          // Commit the transaction after inserting
-          db.query("COMMIT");
-
-          callback(null, {
-            id: this.lastID, // ID of the newly inserted row
-            shopID,
-            apikey,
-            apiSecret,
-            apiurl,
-            syncProducts,
-            syncOrders
-          });
-        });
-      }
     });
   });
 };
@@ -663,60 +588,116 @@ const getAllShopDetails = (callback) => {
 
 async function SaveShop(shop, accessToken) {
   try {
-    // First, try to insert the shop if it doesn't exist
-    db.query(
-      `INSERT OR IGNORE INTO shop (shopName, accessToken) VALUES (?, ?)`,
-      [shop, accessToken],
-      function (err) {
-        if (err) {
-          console.error('Error saving shop token:', err);
-          return 0;
+    // Check if the shop already exists
+    const existingShop = await new Promise((resolve, reject) => {
+      db.query(
+        `SELECT * FROM shop WHERE shopName = ?`,
+        [shop],
+        (err, rows) => {
+          if (err) {
+            console.error('Error checking shop existence:', err);
+            reject(err);
+          } else {
+            resolve(rows[0]); // Resolve with the first row (if exists)
+          }
         }
+      );
+    });
 
-        if (this.changes === 0) {
-          // Shop already exists, so let's update the accessToken
-          db.query(
-            `UPDATE shop SET accessToken = ? WHERE shopName = ?`,
-            [accessToken, shop],
-            function (err) {
-              if (err) {
-                console.error('Error updating shop token:', err);
-                return 0;
-              } else {
-                console.log(`Updated access token for shop '${shop}'.`);
-                return 1;
-              }
+    if (existingShop) {
+      // If the shop exists, update the accessToken
+      await new Promise((resolve, reject) => {
+        db.query(
+          `UPDATE shop SET accessToken = ? WHERE shopName = ?`,
+          [accessToken, shop],
+          (err) => {
+            if (err) {
+              console.error('Error updating shop token:', err);
+              reject(err);
+            } else {
+              console.log(`Updated access token for shop '${shop}'.`);
+              resolve();
             }
-          );
-        } else {
-          // New shop has been inserted
-          console.log(`Shop '${shop}' and its accessToken saved to the database.`);
-          return 1;
-        }
-      }
-    );
+          }
+        );
+      });
+    } else {
+      // If the shop doesn't exist, insert a new record
+      await new Promise((resolve, reject) => {
+        db.query(
+          `INSERT INTO shop (shopName, accessToken) VALUES (?, ?)`,
+          [shop, accessToken],
+          (err) => {
+            if (err) {
+              console.error('Error inserting shop token:', err);
+              reject(err);
+            } else {
+              console.log(`Shop '${shop}' and its accessToken saved to the database.`);
+              resolve();
+            }
+          }
+        );
+      });
+    }
+
+    // Return success status
+    return 1;
   } catch (e) {
-    console.log(e);
-    return 0;
+    console.error('Error in SaveShop:', e);
+    return 0; // Return failure status
   }
 }
 
+
 async function SaveUserData(shopID, apiKey, apiSecret, apiUrl) {
   return new Promise((resolve, reject) => {
-    db.query(`
-      INSERT INTO shop_details (shopID, apiKey, apiSecret, apiUrl)
-      VALUES (?, ?, ?, ?)`,
-      [shopID, apiKey, apiSecret, apiUrl],
-      function(err) {
+    // Check if the record already exists
+    db.query(
+      `SELECT * FROM shop_details WHERE shopID = ?`,
+      [shopID],
+      (err, rows) => {
         if (err) {
-          console.error('Error saving API settings:', err);
-          reject(err);
-        } else {
-          resolve({ id: this.lastID, shopID, apiKey, apiSecret, apiUrl });
+          console.error('Error checking shop details:', err);
+          return reject(err);
         }
-      });
+
+        if (rows.length > 0) {
+          // Record exists, perform an update
+          db.query(
+            `UPDATE shop_details 
+             SET apiKey = ?, apiSecret = ?, apiUrl = ? 
+             WHERE shopID = ?`,
+            [apiKey, apiSecret, apiUrl, shopID],
+            function (err) {
+              if (err) {
+                console.error('Error updating shop details:', err);
+                return reject(err);
+              }
+              console.log(`Updated details for shopID '${shopID}'.`);
+              resolve({ id: rows[0].id, shopID, apiKey, apiSecret, apiUrl });
+            }
+          );
+        } else {
+          // Record does not exist, perform an insert
+          db.query(
+            `INSERT INTO shop_details (shopID, apiKey, apiSecret, apiUrl) 
+             VALUES (?, ?, ?, ?)`,
+            [shopID, apiKey, apiSecret, apiUrl],
+            function (err) {
+              if (err) {
+                console.error('Error inserting shop details:', err);
+                return reject(err);
+              }
+              console.log(`Inserted new details for shopID '${shopID}'.`);
+              resolve({ id: this.lastID, shopID, apiKey, apiSecret, apiUrl });
+            }
+          );
+        }
+      }
+    );
   });
 }
+
 
 
 // Function to get shopID by shopName
@@ -728,7 +709,7 @@ const getShopIDByShopName = (shopName, callback) => {
       return callback(err);
     }
     
-    if (row) {
+    if (row.length!=0) {
       console.log('Shop found:', row); // Log found shop data
       callback(null, row[0].id || row.id); // Sqlite and MySQL return different objects
     } else {
