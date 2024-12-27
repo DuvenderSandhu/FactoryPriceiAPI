@@ -375,17 +375,17 @@ router.put('/api/update-price-adjustment', async (ctx) => {
   // Validate input
   if (!priceAdjustmentType || !priceAdjustmentAmount) {
     ctx.status = 400;
-    ctx.body = { error: 'priceAdjustmentType and priceAdjustmentAmount are required' };
+    ctx.body = { ok:false,error: 'priceAdjustmentType and priceAdjustmentAmount are required' };
     return;
   }
 
   try {
     const result = await db.updatePriceAdjustment(ctx.session.shop, priceAdjustmentType, priceAdjustmentAmount);
     ctx.status = 200;
-    ctx.body = { message: result };
+    ctx.body = {ok:true, message: result };
   } catch (err) {
     ctx.status = 500;
-    ctx.body = { error: err.message || err };
+    ctx.body = { ok:false,error: err.message || err };
   }
 });
 
@@ -425,7 +425,7 @@ router.post('/deleteOrder', async (ctx) => {
       await db.updateOrderCancellationStatus(orderId,1)
 
       ctx.body=({
-        success: true,
+        ok: true,
         message: 'Order Cancellation  successfully Started',
         data: response.data, // You can choose to send this data or not
       });
@@ -434,7 +434,7 @@ router.post('/deleteOrder', async (ctx) => {
       console.error('Error deleting order:', error);
     // Handle error response from external API
     ctx.body= ({
-      success: false,
+      ok: false,
       error: 'Internal server error while deleting order',
       details: error.response ? error.response.data : error.message, // Capture the error message or data
     })
@@ -479,7 +479,7 @@ router.post('/register', async (ctx) => {
   // Validate required fields
   if (!apiKey || !apiSecret || !apiUrl) {
     ctx.status = 400;
-    ctx.body = { message: 'Missing required fields' };
+    ctx.body = {ok:false, message: 'Missing required fields' };
     return;
   }
 
@@ -499,7 +499,7 @@ router.post('/register', async (ctx) => {
 
     if (!shopID) {
       ctx.status = 404;
-      ctx.body = { message: 'Shop not found in database' };
+      ctx.body = {ok:false, message: 'Shop not found in database' };
       return;
     }
 
@@ -508,16 +508,16 @@ router.post('/register', async (ctx) => {
       console.log("Hi i am here")
       const result = await db.SaveUserData(shopID, apiKey, apiSecret, apiUrl);
       ctx.status = 201;
-      ctx.body = { message: 'API settings registered successfully', result };
+      ctx.body = { ok:true,message: 'API settings registered successfully', result };
     } catch (error) {
       ctx.status = 500;
-      ctx.body = { message: error.message || 'Failed to save API settings' };
+      ctx.body = { ok:false, message: error.message || 'Failed to save API settings' };
     }
 
   } catch (error) {
     // Catch errors from the first Promise (db.getShopIDByShopName)
     ctx.status = 500;
-    ctx.body = { message: error.message || 'Unexpected error occurred' };
+    ctx.body = { ok:false,message: error.message || 'Unexpected error occurred' };
   }
 });
 
@@ -1033,7 +1033,7 @@ router.get('/api/getShopAPIData', async (ctx) => {
 
     if (!shopName) {
       ctx.status = 400;
-      ctx.body = { message: 'Shop name is required in session' };
+      ctx.body = { ok:false, message: 'Shop name is required in session' };
       return;
     }
 
@@ -1050,7 +1050,7 @@ router.get('/api/getShopAPIData', async (ctx) => {
 
     if (!shopID) {
       ctx.status = 404;
-      ctx.body = { message: 'Shop ID not found for the given shop name' };
+      ctx.body = {ok:false, message: 'Shop ID not found for the given shop name' };
       return;
     }
 
@@ -1067,19 +1067,19 @@ router.get('/api/getShopAPIData', async (ctx) => {
 
     if (!apiDetails) {
       ctx.status = 404;
-      ctx.body = { message: 'No API details found for this shop' };
+      ctx.body = {ok:false, message: 'No API details found for this shop' };
       return;
     }
 
     // Successful response
     ctx.status = 200;
-    ctx.body = {data:apiDetails}
+    ctx.body = {ok:true,data:apiDetails}
     console.log('API Details Response:', ctx.body);
 
   } catch (error) {
     console.error('Unexpected error:', error);
     ctx.status = 500;
-    ctx.body = { message: 'An unexpected error occurred', error: error.message };
+    ctx.body = { ok:false,message: 'An unexpected error occurred', error: error.message };
   }
 });
 router.get('/api/cancel', async (ctx) => {
@@ -1354,7 +1354,7 @@ router.get('/api/get-products', async (ctx) => {
           page,
           limit,
           total: totalCount,  // Total number of products
-          totalPages: Math.ceil(totalCount / limit)  // Total number of pages
+          totalPages: Math.ceil(totalCount / limit)|| 1  // Total number of pages
         }
       };
     } else {
@@ -2132,7 +2132,22 @@ const syncAllProducts = async (baseUrl, headers, shopName) => {
 };
 
 
-
+router.get('/api/get-currency', async (ctx) => {
+  try {
+    const currency = await db.getCurrencyByShopName(ctx.session.shop);  // Fetch the currency from DB
+    ctx.body = {
+      status: 'success',
+      currency: currency,  // Return the currency
+    };
+  } catch (error) {
+    console.error('Error in /api/get-currency:', error);
+    ctx.status = 500;
+    ctx.body = {
+      status: 'error',
+      message: 'Unable to fetch currency',
+    };
+  }
+});
 
 // Router handling the /sync-shopify request
 router.get('/api/sync-shopify', async (ctx) => {
@@ -2199,7 +2214,7 @@ router.get('/api/sync-shopify', async (ctx) => {
   // Check if the shop name is provided in the session
   if (!shop) {
     ctx.status = 400;
-    ctx.body = { message: 'Shop name is required.' };
+    ctx.body = {ok:false, message: 'Shop name is required.' };
     return;
   }
 
@@ -2209,16 +2224,16 @@ router.get('/api/sync-shopify', async (ctx) => {
 
     if (data) {
       ctx.status = 200;
-      ctx.body = data;  // Return price adjustment data
+      ctx.body = {ok:true,data};  // Return price adjustment data
     } else {
       ctx.status = 404;
-      ctx.body = { message: `Price adjustment settings for shop "${shop}" not found.` };
+      ctx.body = { ok:false,message: `Price adjustment settings for shop "${shop}" not found.` };
     }
   } catch (error) {
     // Log the error and respond with a 500 Internal Server Error
     console.error('Error in /api/get-price-adjustment route:', error);
     ctx.status = 500;
-    ctx.body = { message: 'Internal server error, please try again later.' };
+    ctx.body = {ok:false, message: 'Internal server error, please try again later.' };
   }
 });
 

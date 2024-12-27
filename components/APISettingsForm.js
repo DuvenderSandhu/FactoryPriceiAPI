@@ -5,11 +5,10 @@ const { Option } = Select;
 
 const ApiSettingsForm = ({ onApiSubmit, loading }) => {
   const [priceAdjustment, setPriceAdjustment] = useState({
-    priceAdjustmentType: '',
-    priceAdjustmentAmount: '',
-    currency: 'USD',  // Default currency is USD
+    priceAdjustmentType: '-',
+    priceAdjustmentAmount: '-',
+    currency: '-',  // Default currency is USD
   });
-  const [turnOff, setTurnOff] = useState(0);
   const [availableCurrencies, setAvailableCurrencies] = useState(['USD', 'EUR', 'INR']);
   const [apiData, setApiData] = useState({
     apikey: 'your-api-key-here',  // Hardcoded API Key
@@ -18,19 +17,21 @@ const ApiSettingsForm = ({ onApiSubmit, loading }) => {
       // Example currencies, hardcoded
   });
 
-  useEffect(() => {
-    const fetchPriceAdjustment = async () => {
-    };
-    fetchPriceAdjustment();
-  }, [turnOff]);
+
 
 useEffect(() => {
   const fetchApiData = async () => {
     try {
       const response = await fetch('/api/getShopAPIData'); // Replace with your actual API
       const result = await response.json();
-      setApiData(result.data[0])
-      if (response.ok && result?.data) {
+      if(!result.data[0].apikey=="" && !result.data[0].apiSecret=="" && !result.data[0].apiurl==""){
+         setApiData(result.data[0]) 
+     
+      
+          
+      }
+      console.log("response",response)
+      if (response.ok ) {
         console.log("Result",result.data[0])
         setApiData(result.data[0]);
       } else {
@@ -41,8 +42,40 @@ useEffect(() => {
       notification.error({ message: 'Error', description: 'Failed to fetch API data' });
     }
   };
-
+  const fetchCurrency = async () => {
+    try {
+      const response = await fetch('/api/get-currency'); // Replace with your actual API
+      const result = await response.json();
+      if (response.ok ) {
+        setPriceAdjustment(prevState => ({
+    ...prevState,  // Keep all previous state values
+    currency: result.currency,  // Only change the currency
+  }));
+      } else {
+        notification.error({ message: 'Error', description: 'Failed to fetch API data' });
+      }
+    } catch (error) {
+      notification.error({ message: 'Error', description: 'Failed to fetch API data' });
+    }
+  };
+    const fetchPriceData = async () => {
+    try {
+      const response = await fetch('/api/get-price-adjustment'); // Replace with your actual API
+      const result = await response.json();
+      if (response.ok ) {
+        console.log("Result",result)
+        setPriceAdjustment(result.data.data);
+      } else {
+        notification.error({ message: 'Error', description: 'Failed to fetch API data' });
+      }
+      console.log("API Data",apiData)
+    } catch (error) {
+      notification.error({ message: 'Error', description: 'Failed to fetch API data' });
+    }
+  };
+fetchPriceData()
   fetchApiData();
+  fetchCurrency()
 }, []);
   const [formApi] = Form.useForm(); // Form for API settings
   const [formPriceAdjustment] = Form.useForm(); // Form for Price Adjustment settings
@@ -50,6 +83,7 @@ useEffect(() => {
   // Function to handle API settings submission
   const handleApiSubmit = async (values) => {
     const { apiKey, apiSecret, apiUrl } = values;
+    
 
     if (!apiKey || !apiSecret || !apiUrl) {
       notification.error({
@@ -67,18 +101,24 @@ useEffect(() => {
       });
 
       const result = await response.json();
-
+    console.log("ok here",response.ok)
       if (response.ok) {
+        //   setApiData({
+        //       apikey:value.apiKey,
+        //       apiSecret:value.apiSecret,
+        //       apiurl:value.apiurl
+        //   })
+          
+          console.log("here")
         notification.success({
           message: 'API Settings Registered',
-          description: result.message || 'API settings were successfully registered!',
+          description:  'API settings were successfully registered!',
         });
-        formApi.resetFields(); // Clear the form after successful submission
-        if (onApiSubmit) onApiSubmit(values); // Optional: Pass data to parent
+        
       } else {
         notification.error({
           message: 'Registration Failed',
-          description: result.message || 'There was an issue registering the API settings.',
+          description: result?.message || 'There was an issue registering the API settings.',
         });
       }
     } catch (error) {
@@ -104,10 +144,7 @@ useEffect(() => {
 
     try {
       // Update the local state with form values for price adjustment
-      setPriceAdjustment({
-        priceAdjustmentType,
-        priceAdjustmentAmount
-      });
+      
       console.log("Hi")
 
       // API request to update price adjustment and currency on the server
@@ -123,6 +160,10 @@ useEffect(() => {
       const result = await response.json();
 
       if (response.ok) {
+          setPriceAdjustment({
+        priceAdjustmentType,
+        priceAdjustmentAmount
+      });
         notification.success({
           message: 'Price Adjustment Applied',
           description: result.message || 'Price adjustment has been successfully applied!',
@@ -223,21 +264,21 @@ useEffect(() => {
         priceAdjustmentAmount: priceAdjustment.priceAdjustmentAmount,
         currency: priceAdjustment.currency, // Set initial currency
       }}>
-        <Form.Item label="Price Adjustment Type" name="priceAdjustmentType" rules={[{ required: true, message: 'Please select a price adjustment type' }]} >
-          <Select placeholder="Select price adjustment type">
-            <Option value="fixed">Fixed</Option>
-            <Option value="percentage">Percentage</Option>
+        <Form.Item label="Price Adjustment Type"  name="priceAdjustmentType" rules={[{ required: true, message: 'Please select a price adjustment type' }]} >
+          <Select placeholder="Select price adjustment type" defaultValue={priceAdjustment.priceAdjustmentType}>
+            <Option selected={priceAdjustment.priceAdjustmentType=='fixed'}  value="fixed">Fixed</Option>
+            <Option selected={priceAdjustment.priceAdjustmentType=='percentage'} value="percentage">Percentage</Option>
           </Select>
         </Form.Item>
 
         <Form.Item label="Price Adjustment Amount" name="priceAdjustmentAmount" rules={[{ required: true, message: 'Please enter the price adjustment amount' }]} >
-          <Input type="number" min={0} placeholder="Enter Amount" />
+          <Input type="number"  min={0} placeholder={priceAdjustment.priceAdjustmentAmount} />
         </Form.Item>
 
         <Form.Item label="Currency" name="currency" >
           <Select placeholder="Select Currency" defaultValue={priceAdjustment.currency} onChange={handleCurrencyChange}>
             {availableCurrencies && availableCurrencies.map((currency) => (
-              <Option key={currency} value={currency}>{currency}</Option>
+              <Option key={currency} selected={currency==priceAdjustment.currency} value={currency}>{currency}</Option>
             ))}
           </Select>
         </Form.Item>

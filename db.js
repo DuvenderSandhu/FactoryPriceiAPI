@@ -14,7 +14,8 @@ const db = mysql.createConnection({
     host: process.env.DB_HOST || "localhost" , // replace with your host name
     user: process.env.DB_USER || "root" ,           // replace with your username
     password: process.env.DB_PASS || "" ,           // replace with your password
-    database: process.env.DB_NAME || "factory_price"      // replace with your database name
+    database: process.env.DB_NAME || "factory_price",    // replace with your database name
+    port:process.env.PORT||3306
   });
 
 // Create a new table for storing shop details (shopName and accessToken)
@@ -299,7 +300,7 @@ const saveProductToDB = async (productData) => {
 
 
 function insertLog(level, message, shop_id, sku = null, error_message = null) {
-  const timestamp = new Date().toISOString();
+  const timestamp = new Date().toLocaleString().replace(',', '');
 
   const insertQuery = `
       INSERT INTO user_logs (level, message, timestamp, shop_id, sku, error_message)
@@ -546,7 +547,7 @@ const countProducts = async () => {
           console.error('Error counting products:', err);
           return reject(err);  // Reject the promise if there's an error
         }
-        resolve(row.total);  // Resolve with the total count of products
+        resolve(row[0].total);  // Resolve with the total count of products
       });
     });
     return count;  // Return the count

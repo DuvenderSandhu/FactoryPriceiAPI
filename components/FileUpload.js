@@ -25,38 +25,38 @@ function TopBar() {
   const [receivedProducts,setReceivedProducts]=useState(0)
 
 
-  const fetchPriceAdjustment = async () => {
-    try {
-      // Use fetch to get data from the API
-      const response = await fetch(`/api/get-price-adjustment`);
+//   const fetchPriceAdjustment = async () => {
+//     try {
+//       // Use fetch to get data from the API
+//       const response = await fetch(`/api/get-price-adjustment`);
 
-      if (!response.ok) {
-        throw new Error('Error fetching price adjustment data');
-      }
+//       if (!response.ok) {
+//         throw new Error('Error fetching price adjustment data');
+//       }
 
-      // Parse the response as JSON
-      const data = await response.json();
+//       // Parse the response as JSON
+//       const data = await response.json();
 
-      if (data.data.priceAdjustmentType && data.data.priceAdjustmentAmount !== undefined) {
-        setPriceAdjustment(data.data); // Set the state with fetched data
-        // Show notification with the fetched price adjustment settings
-        notification.success({
-          message: 'Price Adjustment Settings',
-          description: `Your setting has the type: ${data.priceAdjustmentType} and the amount: ${data.priceAdjustmentAmount}`,
-        });
-      } else {
-        notification.error({
-          message: 'No Data Found',
-          description: `No price adjustment settings found for shop "${shopName}".`,
-        });
-      }
-    } catch (error) {
-      notification.error({
-        message: 'Error Fetching Data',
-        description: error.message || 'An error occurred while fetching the data.',
-      });
-    }
-  };
+//       if (data.data.priceAdjustmentType && data.data.priceAdjustmentAmount !== undefined) {
+//         setPriceAdjustment(data.data); // Set the state with fetched data
+//         // Show notification with the fetched price adjustment settings
+//         notification.success({
+//           message: 'Price Adjustment Settings',
+//           description: `Your setting has the type: ${data.priceAdjustmentType} and the amount: ${data.priceAdjustmentAmount}`,
+//         });
+//       } else {
+//         notification.error({
+//           message: 'No Data Found',
+//           description: `No price adjustment settings found for shop .`,
+//         });
+//       }
+//     } catch (error) {
+//       notification.error({
+//         message: 'Error Fetching Data',
+//         description: error.message || 'An error occurred while fetching the data.',
+//       });
+//     }
+//   };
   const handleFileUpload = (e, setFile) => {
     setFile(e.target.files[0]);
   };
@@ -425,9 +425,11 @@ const handleProductImport = async () => {
           // If match found, merge attributes from the matching item
           Object.keys(matchingItem).forEach(key => {
             if (matchingItem[key]?._text) {
-              variant._attributes[key] = matchingItem[key]._text;
+              variant._attributes[key] = matchingItem[key]?._text;
             } else if (Array.isArray(matchingItem[key])) {
-              variant._attributes[key] = matchingItem[key].map(item => getFieldText(item));
+              variant._attributes[key] = Array.isArray(matchingItem[key])
+  ? matchingItem[key].map(item => getFieldText(item))
+  : "";
             } else if (typeof matchingItem[key] === 'object') {
               variant._attributes[key] = getFieldText(matchingItem[key]);
             }
@@ -765,9 +767,7 @@ const handleMergeAndMap = async () => {
     shopifyField: field,
     xmlField: columnMappings[field],
   }));
-    useEffect(()=>{
-        fetchPriceAdjustment().then()
-    },[])
+
   return (
     <div className="max-w-4xl mx-auto p-8 bg-white rounded-lg shadow-xl">
     {/*<ProgressComponent percent={receivedProducts}/>*/}
@@ -783,7 +783,7 @@ const handleMergeAndMap = async () => {
         className="file:border-2 file:border-gray-300 file:rounded-md file:px-4 file:py-2 file:bg-indigo-500 file:text-white hover:file:bg-indigo-600 transition duration-300 ease-in-out"
       />
       <Space style={{ marginTop: '10px', width: '100%' }} direction="horizontal" align="center">
-  <Tooltip title="Upload XML File 1">
+   {/*<Tooltip title="Upload XML File 1">
   <Button type="primary" icon={<UploadOutlined />} size="large" loading={loading}
       onClick={uploadFile1}>
             Upload
@@ -791,7 +791,7 @@ const handleMergeAndMap = async () => {
 
   </Tooltip>
 
-  <div>
+ <div>
     <Tooltip title="Create Products from File">
       <Button
         type="primary"
@@ -812,7 +812,7 @@ const handleMergeAndMap = async () => {
         Create Product from XML
       </Button>
     </Tooltip>
-{/* 
+
     <Button
       type="default"
       onClick={cancelProductCreation}  // Trigger cancel function
@@ -825,18 +825,18 @@ const handleMergeAndMap = async () => {
       }}
     >
       Cancel
-    </Button> */}
-  </div>
+    </Button> 
+  </div>*/}
 </Space>
 
     </Col>
   </Row>
 </div>
 
-<Checkbox checked={showMegerSection} onChange={(e) => e.target.checked?setShowMegerSection(true):setShowMegerSection(false)}>
+{/* <Checkbox checked={showMegerSection} onChange={(e) => e.target.checked?setShowMegerSection(true):setShowMegerSection(false)}>
   Merge Files and Download CSV
-</Checkbox>
-  <div className={!showMegerSection?"hidden":""}>
+</Checkbox>*/}
+  <div >
   <Row justify="space-between" align="middle" gutter={[16, 16]}>
     <Col span={6}><Text strong>Upload Stock File:</Text></Col>
     <Col span={12}>

@@ -5,3 +5,16 @@ PassengerNodejs "/home/botdbcmu/nodevenv/factoryprice.botdigit.net/20/bin/node"
 PassengerAppType node
 PassengerStartupFile server.js
 # DO NOT REMOVE. CLOUDLINUX PASSENGER CONFIGURATION END
+# DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION BEGIN
+<IfModule Litespeed>
+SetEnv DB_HOST localhost
+SetEnv DB_NAME botdbcmu_FactoryPrice
+SetEnv DB_PASS FactoryPrice@f3J7hXq
+SetEnv HOST https://factoryprice.botdigit.net
+SetEnv SHOPIFY_API_KEY 352c32145c01bdd5591d10cfbd41cd3a
+SetEnv SHOPIFY_API_SECRET_KEY 84dcfd2a038a2137a2872a83cd804cb1
+SetEnv redirectURL https://	factoryprice.botdigit.net/shopify-api/callback/
+SetEnv DB_USER botdbcmu_factoryprice_db
+SetEnv DB_PORT 3306
+</IfModule>
+# DO NOT REMOVE OR MODIFY. CLOUDLINUX ENV VARS CONFIGURATION END
